@@ -182,6 +182,7 @@ module.exports = {
         var addr1 = invite + '~' + transform
         console.error('dhtinvite.accept calculated remote addr: ' + addr1)
         console.error('  will get RPC connection')
+        var beenHere = false
         dhtClient(
           {
             keys: sbot.keys,
@@ -191,6 +192,8 @@ module.exports = {
           },
           function(err, rpc) {
             //#region preconditions
+            if (beenHere) return
+            else beenHere = true
             if (err) return cb(explain(err, 'Could not connect to DHT server'))
             //#endregion
             console.log('  got RPC connection')
