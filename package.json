@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "multiserver": "~1.13.4",
-    "multiserver-dht": "~2.3.1",
+    "multiserver-dht": "~3.0.0",
     "muxrpc": "~6.4.1",
     "pull-stream": "^3.6.9",
     "explain-error": "~1.0.4",
