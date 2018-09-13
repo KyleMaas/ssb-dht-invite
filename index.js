@@ -94,10 +94,10 @@ module.exports = {
           )
         }
         //#endregion
-        var seed1 = req.seed
+        var seed = req.seed
         var friendId = req.feed
         console.error('dhtinvite.use called with arg ' + JSON.stringify(req))
-        codesDB.get(seed1, function(err, info) {
+        codesDB.get(seed, function(err, info) {
           //#region preconditions
           if (err) {
             return cb(
@@ -108,25 +108,15 @@ module.exports = {
             return cb(new Error('Cannot `use` an already claimed invite'))
           }
           //#endregion
-          console.error('dhtinvite.use invite state is ' + info)
-          console.error(
-            'dhtinvite.use will delete claimed invite and create full friendship invite'
-          )
-          var seed2 = crypto.randomBytes(32).toString('base64')
-          var operations = [
-            {type: 'del', key: seed1},
-            {type: 'put', key: seed2, value: friendId},
-          ]
-          codesDB.batch(operations, function(err) {
+          console.error('dhtinvite.use will claim invite')
+          codesDB.put(seed, friendId, operations, function(err) {
             //#region preconditions
             if (err) return cb(err)
             //#endregion
-            var channel = seed2 + ':' + sbot.id
-            channelsSource.push(channel)
             console.error(
               'dhtinvite.use claimed invite and will follow remote friend'
             )
-            var res = {seed: seed2, feed: sbot.id}
+            var res = {seed: seed, feed: sbot.id}
             console.error('dhtinvite.use will return ' + JSON.stringify(res))
             sbot.publish(
               {type: 'contact', contact: friendId, following: true},
@@ -141,7 +131,7 @@ module.exports = {
       },
 
       accept: function(invite, cb) {
-        var seed1, remoteId
+        var seed, remoteId
         //#region parse the invite
         if (typeof invite !== 'string' || invite.length === 0) {
           return cb(new Error('Cannot `accept` the DHT invite, it is missing'))
@@ -161,8 +151,8 @@ module.exports = {
             )
           )
         }
-        seed1 = parts[1]
-        if (seed1.length === 0) {
+        seed = parts[1]
+        if (seed.length === 0) {
           return cb(
             new Error(
               'Cannot `accept` the DHT invite, the seed part is missing'
@@ -179,15 +169,15 @@ module.exports = {
         }
         //#endregion
         var transform = 'noauth'
-        var addr1 = invite + '~' + transform
-        console.error('dhtinvite.accept calculated remote addr: ' + addr1)
+        var addr = invite + '~' + transform
+        console.error('dhtinvite.accept calculated remote addr: ' + addr)
         console.error('  will get RPC connection')
         var beenHere = false
         dhtClient(
           {
             keys: sbot.keys,
             caps: config.caps,
-            addr: addr1,
+            addr: addr,
             manifest: {dhtInvite: {use: 'async'}, getAddress: 'async'},
           },
           function(err, rpc) {
@@ -197,7 +187,7 @@ module.exports = {
             if (err) return cb(explain(err, 'Could not connect to DHT server'))
             //#endregion
             console.log('  got RPC connection')
-            var req = {seed: seed1, feed: sbot.id}
+            var req = {seed: seed, feed: sbot.id}
             console.error(
               'dhtinvite.accept will call remote dhtinvite.use: ' +
                 JSON.stringify(req)
@@ -211,22 +201,24 @@ module.exports = {
               }
               //#endregion
               rpc.close()
-              var seed2 = res.seed
               var friendId = res.feed
-              var addr2 = 'dht:' + seed2 + ':' + friendId + '~' + transform
               console.error('dhtinvite.accept will follow friend ' + friendId)
-              sbot.publish(
-                {
-                  type: 'contact',
-                  contact: friendId,
-                  following: true,
-                },
-                () => {
-                  console.error('dhtinvite.accept will add to gossip: ' + addr2)
-                  sbot.gossip.add(addr2, 'dht')
-                  cb(null, true)
-                }
-              )
+              setTimeout(() => {
+                sbot.publish(
+                  {
+                    type: 'contact',
+                    contact: friendId,
+                    following: true,
+                  },
+                  () => {
+                    console.error(
+                      'dhtinvite.accept will add to gossip: ' + addr
+                    )
+                    sbot.gossip.add(addr, 'dht')
+                    cb(null, true)
+                  }
+                )
+              }, 100)
             })
           }
         )
