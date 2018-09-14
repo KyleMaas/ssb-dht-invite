@@ -109,7 +109,7 @@ module.exports = {
           }
           //#endregion
           console.error('dhtinvite.use will claim invite')
-          codesDB.put(seed, friendId, operations, function(err) {
+          codesDB.put(seed, friendId, function(err) {
             //#region preconditions
             if (err) return cb(err)
             //#endregion
