@@ -162,7 +162,7 @@ module.exports = {
                 )
               }
               //#endregion
-              rpc.close()
+              // rpc.close() // instead of closing, will recycle the connection
               var friendId = res.feed
               console.error('dhtinvite.accept will follow friend ' + friendId)
               setTimeout(() => {
