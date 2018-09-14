@@ -1,6 +1,6 @@
-var crypto = require('crypto')
-var Pushable = require('pull-pushable')
-var explain = require('explain-error')
+const crypto = require('crypto')
+const Pushable = require('pull-pushable')
+const explain = require('explain-error')
 
 function start() {
   //#region preconditions
@@ -10,8 +10,8 @@ function start() {
   this.serverCodesDB = this.sbot.sublevel('dhtServerCodes')
   this.serverCodesDB
     .createReadStream({keys: true, values: false})
-    .on('data', seed => {
-      var channel = seed + ':' + this.sbot.id
+    .on('data', (seed: string) => {
+      const channel = seed + ':' + this.sbot.id
       console.error('dhtinvite.channels emit ' + channel)
       this.serverChannels.push(channel)
     })
@@ -19,12 +19,12 @@ function start() {
   this.clientCodesDB = this.sbot.sublevel('dhtClientCodes')
   this.clientCodesDB
     .createReadStream({keys: true, values: false})
-    .on('data', seed => {
+    .on('data', (seed: string) => {
       this.accept(seed, () => {})
     })
 }
 
-function create(cb) {
+function create(cb: (err: any, inviteCode?: string) => void) {
   //#region preconditions
   if (!this.serverCodesDB) {
     return cb(
@@ -32,28 +32,33 @@ function create(cb) {
     )
   }
   //#endregion
-  var seed = crypto.randomBytes(32).toString('base64')
-  var info = 'unclaimed'
-  this.serverCodesDB.put(seed, info, err => {
+  const seed = crypto.randomBytes(32).toString('base64')
+  const info = 'unclaimed'
+  this.serverCodesDB.put(seed, info, (err: any) => {
     //#region preconditions
     if (err) return cb(err)
     //#endregion
-    var channel = seed + ':' + this.sbot.id
+    const channel = seed + ':' + this.sbot.id
     cb(null, 'dht:' + channel)
     this.serverChannels.push(channel)
   })
 }
 
-function use(req, cb) {
+type Msg = {
+  feed: string
+  seed: string
+}
+
+function use(req: Msg, cb: (err: any, res?: Msg) => void) {
   //#region preconditions
   if (!this.serverCodesDB) {
     return cb(new Error('Cannot call dhtInvite.use() before dhtInvite.start()'))
   }
   //#endregion
-  var seed = req.seed
-  var friendId = req.feed
+  const seed = req.seed
+  const friendId = req.feed
   console.error('dhtinvite.use called with arg ' + JSON.stringify(req))
-  this.serverCodesDB.get(seed, (err, info) => {
+  this.serverCodesDB.get(seed, (err: any, info: string) => {
     //#region preconditions
     if (err) {
       return cb(explain(err, 'Cannot `use` an invite that does not exist'))
@@ -63,24 +68,24 @@ function use(req, cb) {
     }
     //#endregion
     console.error('dhtinvite.use will claim invite')
-    this.serverCodesDB.put(seed, friendId, err => {
+    this.serverCodesDB.put(seed, friendId, (err: any) => {
       //#region preconditions
       if (err) return cb(err)
       //#endregion
       console.error(
         'dhtinvite.use claimed invite and will follow remote friend'
       )
-      var res = {seed: seed, feed: this.sbot.id}
+      const res: Msg = {seed: seed, feed: this.sbot.id}
       console.error('dhtinvite.use will return ' + JSON.stringify(res))
       this.sbot.publish(
         {type: 'contact', contact: friendId, following: true},
-        err => cb(err, res)
+        (err: any) => cb(err, res)
       )
     })
   })
 }
 
-function accept(invite, cb) {
+function accept(invite: string, cb: (err: any, done?: true) => void) {
   //#region preconditions
   if (!this.clientCodesDB) {
     return cb(
@@ -88,15 +93,15 @@ function accept(invite, cb) {
     )
   }
   //#endregion
-  this.clientCodesDB.put(invite, true, err => {
+  this.clientCodesDB.put(invite, true, (err: any) => {
     if (err) return cb(explain(err, 'Could not save to-claim invite locally'))
   })
-  var seed, remoteId
+  let seed: string, remoteId: string
   //#region parse the invite
   if (typeof invite !== 'string' || invite.length === 0) {
     return cb(new Error('Cannot `accept` the DHT invite, it is missing'))
   }
-  var parts = invite.split(':')
+  const parts = invite.split(':')
   if (parts.length !== 3) {
     return cb(
       new Error('Cannot `accept` the DHT invite, it is missing some parts')
@@ -120,37 +125,37 @@ function accept(invite, cb) {
     )
   }
   //#endregion
-  var transform = 'shs:' + remoteId
-  var addr = invite + '~' + transform
+  const transform = 'shs:' + remoteId
+  const addr = invite + '~' + transform
   console.error('dhtinvite.accept calculated remote addr: ' + addr)
   console.error('  will get RPC connection')
-  var beenHere = false
+  let beenHere = false
   this.sbot.connect(
     addr,
-    (err, rpc) => {
+    (err: any, rpc: any) => {
       //#region preconditions
       if (beenHere) return
       else beenHere = true
       if (err) return cb(explain(err, 'Could not connect to DHT server'))
       //#endregion
       console.error('  got RPC connection')
-      var req = {seed: seed, feed: this.sbot.id}
+      const req: Msg = {seed: seed, feed: this.sbot.id}
       console.error(
         'dhtinvite.accept will call remote dhtinvite.use: ' +
           JSON.stringify(req)
       )
-      rpc.dhtInvite.use(req, (err2, res) => {
+      rpc.dhtInvite.use(req, (err2: any, res: Msg) => {
         //#region preconditions
         if (err2) {
           return cb(explain(err2, 'Could not tell friend to use DHT invite'))
         }
         //#endregion
-        this.clientCodesDB.del(invite, err => {
-          if (err)
-            return cb(explain(err, 'Could not save delete to-claim invite'))
+        this.clientCodesDB.del(invite, (err3: any) => {
+          if (err3)
+            return cb(explain(err3, 'Could not save delete to-claim invite'))
         })
         // rpc.close() // instead of closing, will recycle the connection
-        var friendId = res.feed
+        const friendId = res.feed
         console.error('dhtinvite.accept will follow friend ' + friendId)
         setTimeout(() => {
           this.sbot.publish(
@@ -185,8 +190,8 @@ module.exports = {
     master: {allow: ['create', 'start', 'channels', 'accept']},
     anonymous: {allow: ['use']},
   },
-  init: function(sbot, config) {
-    var serverChannels = Pushable()
+  init: function(sbot: any, config: any) {
+    const serverChannels = Pushable()
 
     return {
       sbot: sbot,
