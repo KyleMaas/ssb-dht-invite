@@ -1,40 +1,6 @@
 var crypto = require('crypto')
 var Pushable = require('pull-pushable')
 var explain = require('explain-error')
-var MultiServer = require('multiserver')
-var makeDHTTransport = require('multiserver-dht')
-var makeNoauthTransform = require('multiserver/plugins/noauth')
-var muxrpc = require('muxrpc')
-var pull = require('pull-stream')
-
-function toSodiumKeys(keys) {
-  if (!keys || !keys.public) return null
-  return {
-    publicKey: new Buffer(keys.public.replace('.ed25519', ''), 'base64'),
-    secretKey: new Buffer(keys.private.replace('.ed25519', ''), 'base64'),
-  }
-}
-
-function dhtClient(opts, cb) {
-  var dht = makeDHTTransport({})
-  var noauth = makeNoauthTransform({
-    keys: {
-      publicKey: Buffer.from(opts.keys.public, 'base64'),
-    },
-  })
-  var ms = MultiServer([[dht, noauth]])
-
-  ms.client(opts.addr, function(err, stream) {
-    if (err) return cb(explain(err, 'could not connect to sbot over DHT'))
-    var sbot = muxrpc(opts.manifest, false)()
-    sbot.id = '@' + stream.remote.toString('base64') + '.ed25519'
-    // // fix blobs.add. (see ./blobs.js)
-    // if (sbot.blobs && sbot.blobs.add)
-    //   sbot.blobs.add = fixBlobsAdd(sbot.blobs.add)
-    pull(stream, sbot.createStream(), stream)
-    cb(null, sbot)
-  })
-}
 
 module.exports = {
   name: 'dhtInvite',
@@ -47,7 +13,8 @@ module.exports = {
     accept: 'async',
   },
   permissions: {
-    master: {allow: ['create']},
+    master: {allow: ['create', 'start', 'channels', 'accept']},
+    anonymous: {allow: ['use']},
   },
   init: function(sbot, config) {
     var channelsSource = Pushable()
@@ -168,25 +135,20 @@ module.exports = {
           )
         }
         //#endregion
-        var transform = 'noauth'
+        var transform = 'shs:' + remoteId
         var addr = invite + '~' + transform
         console.error('dhtinvite.accept calculated remote addr: ' + addr)
         console.error('  will get RPC connection')
         var beenHere = false
-        dhtClient(
-          {
-            keys: sbot.keys,
-            caps: config.caps,
-            addr: addr,
-            manifest: {dhtInvite: {use: 'async'}, getAddress: 'async'},
-          },
+        sbot.connect(
+          addr,
           function(err, rpc) {
             //#region preconditions
             if (beenHere) return
             else beenHere = true
             if (err) return cb(explain(err, 'Could not connect to DHT server'))
             //#endregion
-            console.log('  got RPC connection')
+            console.error('  got RPC connection')
             var req = {seed: seed, feed: sbot.id}
             console.error(
               'dhtinvite.accept will call remote dhtinvite.use: ' +
