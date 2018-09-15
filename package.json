@@ -1,6 +1,6 @@
 {
   "name": "ssb-dht-invite",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A scuttlebot plugin that shares connection invites via a Distributed Hash Table",
   "main": "lib/index.js",
   "repository": {
