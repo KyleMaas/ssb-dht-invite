@@ -10,6 +10,8 @@ function init(sbot: any, config: any) {
   let serverCodesDB: any = null
   let clientCodesDB: any = null
   const serverChannels = Pushable()
+  const serverCodesCache = new Map<string, string>()
+  const serverCodesHosting = Notify()
   const clientCodesCache = new Set<string>()
   const clientCodesPending = Notify()
 
@@ -22,11 +24,15 @@ function init(sbot: any, config: any) {
     serverCodesDB.put = serverCodesDB.put.bind(serverCodesDB)
     serverCodesDB.del = serverCodesDB.del.bind(serverCodesDB)
     serverCodesDB
-      .createReadStream({keys: true, values: false})
-      .on('data', (seed: string) => {
+      .createReadStream()
+      .on('data', (data: {key: string; value: string}) => {
+        const seed = data.key
+        const info = data.value
         const channel = seed + ':' + sbot.id
         debug('server channels: emit %s', channel)
         serverChannels.push(channel)
+        serverCodesCache.set(seed, info)
+        serverCodesHosting(Array.from(serverCodesCache.entries()))
       })
 
     clientCodesDB = sbot.sublevel('dhtClientCodes')
@@ -53,6 +59,8 @@ function init(sbot: any, config: any) {
     const channel = seed + ':' + sbot.id
     cb(null, 'dht:' + channel)
     serverChannels.push(channel)
+    serverCodesCache.set(seed, info)
+    serverCodesHosting(Array.from(serverCodesCache.entries()))
   }
 
   /**
@@ -80,15 +88,18 @@ function init(sbot: any, config: any) {
     debug('use() will claim invite')
     const [err2] = await run(serverCodesDB.put)(seed, friendId)
     if (err2) return cb(err2)
-    debug('use() will follow remote friend')
+    serverCodesCache.set(seed, friendId)
+    serverCodesHosting(Array.from(serverCodesCache.entries()))
 
-    const res: Msg = {seed: seed, feed: sbot.id}
-    debug('use() will respond with %o', res)
+    debug('use() will follow remote friend')
     const [err3] = await run(sbot.publish)({
       type: 'contact',
       contact: friendId,
       following: true,
     })
+
+    const res: Msg = {seed: seed, feed: sbot.id}
+    debug('use() will respond with %o', res)
     cb(err3, res)
   }
 
@@ -191,6 +202,7 @@ function init(sbot: any, config: any) {
     use: use,
     accept: accept,
     channels: () => serverChannels,
+    hostingInvites: () => serverCodesHosting.listen(),
     pendingInvites: () => clientCodesPending.listen(),
   }
 }
@@ -204,11 +216,19 @@ module.exports = {
     use: 'async',
     accept: 'async',
     channels: 'source',
+    hostingInvites: 'source',
     pendingInvites: 'source',
   },
   permissions: {
     master: {
-      allow: ['create', 'start', 'channels', 'accept', 'pendingInvites'],
+      allow: [
+        'create',
+        'start',
+        'channels',
+        'accept',
+        'hostingInvites',
+        'pendingInvites',
+      ],
     },
     anonymous: {allow: ['use']},
   },
