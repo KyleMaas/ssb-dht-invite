@@ -6,14 +6,66 @@ const Notify = require('pull-notify')
 const explain = require('explain-error')
 const debug = require('debug')('ssb:dht-invite')
 
+type Seed = string
+type HostingInfo = {claimer: string; online: boolean}
+
 function init(sbot: any, config: any) {
+  let initialized: boolean = false
   let serverCodesDB: any = null
   let clientCodesDB: any = null
   const serverChannels = Pushable()
-  const serverCodesCache = new Map<string, string>()
+  const serverCodesCache = new Map<Seed, HostingInfo>()
   const serverCodesHosting = Notify()
   const clientCodesCache = new Set<string>()
   const clientCodesClaiming = Notify()
+  const onlineRemoteClients = new Set<string>()
+
+  /**
+   * Update record of online RPC clients using DHT transport.
+   */
+  sbot.on('rpc:connect', (rpc: any, isClient: boolean) => {
+    if (rpc.meta !== 'dht' || isClient) return
+
+    onlineRemoteClients.add(rpc.id)
+    if (initialized) {
+      updateServerCodesCacheOnlineStatus()
+    }
+
+    rpc.on('closed', () => {
+      onlineRemoteClients.delete(rpc.id)
+      if (initialized) updateServerCodesCacheOnlineStatus()
+    })
+  })
+
+  /**
+   * Update the online status of the server codes cache.
+   */
+  function updateServerCodesCacheOnlineStatus() {
+    serverCodesCache.forEach((hInfo: HostingInfo, seed: Seed) => {
+      const claimer = hInfo.claimer
+      if (claimer === 'unclaimed') return
+      const online = onlineRemoteClients.has(claimer)
+      if (hInfo.online !== online) {
+        serverCodesCache.set(seed, {claimer, online})
+      }
+    })
+  }
+
+  /**
+   * Emit an Array<{seed, claimer, online}> on the hostingInvites
+   * notifier stream.
+   */
+  function emitServerCodesHosting() {
+    serverCodesHosting(
+      Array.from(serverCodesCache.entries()).map(
+        ([seed, {claimer, online}]) => ({
+          seed,
+          claimer,
+          online,
+        })
+      )
+    )
+  }
 
   function start() {
     if (clientCodesDB && serverCodesDB) return
@@ -27,12 +79,13 @@ function init(sbot: any, config: any) {
       .createReadStream()
       .on('data', (data: {key: string; value: string}) => {
         const seed = data.key
-        const info = data.value
+        const claimer = data.value
         const channel = seed + ':' + sbot.id
         debug('server channels: emit %s', channel)
         serverChannels.push(channel)
-        serverCodesCache.set(seed, info)
-        serverCodesHosting(Array.from(serverCodesCache.entries()))
+        serverCodesCache.set(seed, {claimer, online: false})
+        emitServerCodesHosting()
+        updateServerCodesCacheOnlineStatus()
       })
 
     clientCodesDB = sbot.sublevel('dhtClientCodes')
@@ -44,6 +97,8 @@ function init(sbot: any, config: any) {
       .on('data', (seed: string) => {
         accept(seed, () => {})
       })
+
+    initialized = true
   }
 
   async function create(cb: (err: any, inviteCode?: string) => void) {
@@ -53,14 +108,14 @@ function init(sbot: any, config: any) {
       )
     }
     const seed = crypto.randomBytes(32).toString('base64')
-    const info = 'unclaimed'
-    const [err] = await run(serverCodesDB.put)(seed, info)
+    const claimer = 'unclaimed'
+    const [err] = await run(serverCodesDB.put)(seed, claimer)
     if (err) return cb(err)
     const channel = seed + ':' + sbot.id
     cb(null, 'dht:' + channel)
     serverChannels.push(channel)
-    serverCodesCache.set(seed, info)
-    serverCodesHosting(Array.from(serverCodesCache.entries()))
+    serverCodesCache.set(seed, {claimer, online: false})
+    emitServerCodesHosting()
   }
 
   /**
@@ -78,18 +133,18 @@ function init(sbot: any, config: any) {
     const seed = req.seed
     const friendId = req.feed
     debug('use() called with request %o', req)
-    const [err, info] = await run<string>(serverCodesDB.get)(seed)
+    const [err, claimer] = await run<string>(serverCodesDB.get)(seed)
     if (err)
       return cb(explain(err, 'Cannot `use` an invite that does not exist'))
-    if (info !== 'unclaimed') {
+    if (claimer !== 'unclaimed') {
       return cb(new Error('Cannot `use` an already claimed invite'))
     }
 
     debug('use() will claim invite')
     const [err2] = await run(serverCodesDB.put)(seed, friendId)
     if (err2) return cb(err2)
-    serverCodesCache.set(seed, friendId)
-    serverCodesHosting(Array.from(serverCodesCache.entries()))
+    serverCodesCache.set(seed, {claimer: friendId, online: true})
+    emitServerCodesHosting()
 
     debug('use() will follow remote friend')
     const [err3] = await run(sbot.publish)({
