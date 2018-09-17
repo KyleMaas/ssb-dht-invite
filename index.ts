@@ -97,10 +97,11 @@ function init(sbot: any, config: any) {
       contact: friendId,
       following: true,
     })
+    if (err3) return cb(err3)
 
     const res: Msg = {seed: seed, feed: sbot.id}
     debug('use() will respond with %o', res)
-    cb(err3, res)
+    cb(null, res)
   }
 
   type ParseInviteReturn = [any] | [undefined, {seed: string; remoteId: string}]
