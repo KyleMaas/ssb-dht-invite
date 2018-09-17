@@ -71,11 +71,17 @@ Replace the canonical gossip plugin, and `use` the multiserver DHT transport **b
 
 ### `start()` (async)
 
+The start() API provides an explicit initialization procedure so that apps can decide what is the best time to initialize non-essential resources and plugins such as this one.
+
 You must call this before using DHT invites in any way.
 
 ### `create()` (async)
 
-Creates and returns a new invite code that can be used **once** with another friend.
+Creates a new invite code and notifies the multiserver DHT transport to host a peer on the DHT addressed with this invite. One invite can only be use **once** with another friend.
+
+Returns the invite code (as a callback) to the caller of this function.
+
+An invite code looks like `dht:<seed>:<invite-creator-id>`
 
 ### `accept(code)` (async)
 
@@ -90,6 +96,8 @@ Pull stream that delivers arrays of invite codes (strings) that are still pendin
 ### `use({seed, feed})` (async)
 
 *Used internally by this plugin to exchange the invite code over RPC*. Don't bother about this.
+
+This API is called remotely by a trusted-or-untrusted peer who wants to "claim" an invite and make us follow them. The remote peer claims the invite by passing it ("seed") alongside the remote peer's id ("feed").
 
 ### `channels()` (source)
 

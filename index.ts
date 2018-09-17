@@ -55,6 +55,9 @@ function init(sbot: any, config: any) {
     serverChannels.push(channel)
   }
 
+  /**
+   * The type of requests and responses exchanged during invite claiming.
+   */
   type Msg = {feed: string; seed: string}
 
   async function use(req: Msg, cb: (err: any, res?: Msg) => void) {
@@ -91,6 +94,9 @@ function init(sbot: any, config: any) {
 
   type ParseInviteReturn = [any] | [undefined, {seed: string; remoteId: string}]
 
+  /**
+   * Given an invite code as a string, return the seed and remoteId.
+   */
   function parseInvite(invite: string): ParseInviteReturn {
     if (typeof invite !== 'string' || invite.length === 0) {
       return [new Error('Cannot `accept` the DHT invite, it is missing')]
