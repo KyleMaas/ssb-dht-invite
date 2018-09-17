@@ -3,6 +3,7 @@ import run = require('promisify-tuple')
 const crypto = require('crypto')
 const Pushable = require('pull-pushable')
 const explain = require('explain-error')
+const debug = require('debug')('ssb:dht-invite')
 
 function init(sbot: any, config: any) {
   const serverChannels = Pushable()
@@ -11,7 +12,7 @@ function init(sbot: any, config: any) {
 
   function start() {
     if (clientCodesDB && serverCodesDB) return
-    console.error('dhtinvite.start')
+    debug('start()')
 
     serverCodesDB = sbot.sublevel('dhtServerCodes')
     serverCodesDB.get = serverCodesDB.get.bind(serverCodesDB)
@@ -21,7 +22,7 @@ function init(sbot: any, config: any) {
       .createReadStream({keys: true, values: false})
       .on('data', (seed: string) => {
         const channel = seed + ':' + sbot.id
-        console.error('dhtinvite.channels emit ' + channel)
+        debug('server channels: emit %s', channel)
         serverChannels.push(channel)
       })
 
@@ -62,7 +63,7 @@ function init(sbot: any, config: any) {
 
     const seed = req.seed
     const friendId = req.feed
-    console.error('dhtinvite.use called with arg ' + JSON.stringify(req))
+    debug('use() called with request %o', req)
     const [err, info] = await run<string>(serverCodesDB.get)(seed)
     if (err)
       return cb(explain(err, 'Cannot `use` an invite that does not exist'))
@@ -70,13 +71,13 @@ function init(sbot: any, config: any) {
       return cb(new Error('Cannot `use` an already claimed invite'))
     }
 
-    console.error('dhtinvite.use will claim invite')
+    debug('use() will claim invite')
     const [err2] = await run(serverCodesDB.put)(seed, friendId)
     if (err2) return cb(err2)
-    console.error('dhtinvite.use claimed invite and will follow remote friend')
+    debug('use() will follow remote friend')
 
     const res: Msg = {seed: seed, feed: sbot.id}
-    console.error('dhtinvite.use will return ' + JSON.stringify(res))
+    debug('use() will respond with %o', res)
     const [err3] = await run(sbot.publish)({
       type: 'contact',
       contact: friendId,
@@ -133,16 +134,13 @@ function init(sbot: any, config: any) {
     const transform = 'shs:' + remoteId
     const addr = invite + '~' + transform
 
-    console.error('dhtinvite.accept calculated remote addr: ' + addr)
-    console.error('  will get RPC connection')
+    debug('accept() will sbot.connect to remote peer addr: %s', addr)
     const [err3, rpc] = await run<any>(sbot.connect)(addr)
     if (err3) return cb(explain(err3, 'Could not connect to DHT server'))
-    console.error('  got RPC connection')
+    debug('accept() connected to remote sbot')
 
     const req: Msg = {seed: seed, feed: sbot.id}
-    console.error(
-      'dhtinvite.accept will call remote dhtinvite.use: ' + JSON.stringify(req)
-    )
+    debug("accept() will call remote's use(%o)", req)
     const [err4, res] = await run<Msg>(rpc.dhtInvite.use)(req)
     if (err4)
       return cb(explain(err4, 'Could not tell friend to use DHT invite'))
@@ -160,7 +158,7 @@ function init(sbot: any, config: any) {
     await sleep(100)
 
     const friendId = res.feed
-    console.error('dhtinvite.accept will follow friend ' + friendId)
+    debug('accept() will follow friend %s', friendId)
     const [err6] = await run(sbot.publish)({
       type: 'contact',
       contact: friendId,
@@ -168,7 +166,7 @@ function init(sbot: any, config: any) {
     })
     if (err6) return cb(explain(err6, 'Unable to follow friend behind invite'))
 
-    console.error('dhtinvite.accept will add to gossip: ' + addr)
+    debug('accept() will add address to gossip %s', addr)
     sbot.gossip.add(addr, 'dht')
 
     cb(null, true)
