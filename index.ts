@@ -29,11 +29,15 @@ function init(sbot: any, config: any) {
     onlineRemoteClients.add(rpc.id)
     if (initialized) {
       updateServerCodesCacheOnlineStatus()
+      emitServerCodesHosting()
     }
 
     rpc.on('closed', () => {
       onlineRemoteClients.delete(rpc.id)
-      if (initialized) updateServerCodesCacheOnlineStatus()
+      if (initialized) {
+        updateServerCodesCacheOnlineStatus()
+        emitServerCodesHosting()
+      }
     })
   })
 
