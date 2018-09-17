@@ -51,10 +51,7 @@ function init(sbot: any, config: any) {
     serverChannels.push(channel)
   }
 
-  type Msg = {
-    feed: string
-    seed: string
-  }
+  type Msg = {feed: string; seed: string}
 
   async function use(req: Msg, cb: (err: any, res?: Msg) => void) {
     if (!serverCodesDB) {
