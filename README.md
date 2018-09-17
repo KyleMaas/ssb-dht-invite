@@ -3,18 +3,39 @@
 _A scuttlebot plugin that shares connection invites via a Distributed Hash Table_. Like the standard `invite` plugin, but over a DHT.
 
 ```
-npm install --save ssb-dht-invite
+npm install --save ssb-dht-invite @staltz/sbot-gossip multiserver-dht
 ```
+
+Notice above that you should install these 3 dependencies:
+
+- `ssb-dht-invite` (this plugin)
+- `@staltz/sbot-gossip` (a fork of the Scuttlebot gossip plugin)
+- `multiserver-dht` (required for this plugin to work)
 
 ## Usage
 
-As client:
+Replace the canonical gossip plugin, and `use` the multiserver DHT transport **before** calling `use` with `ssb-dht-invite`.
 
 ```diff
++var DHT = require('multiserver-dht')
+
++function dhtTransport(sbot) {
++  sbot.multiserver.transport({
++    name: 'dht',
++    create: dhtConfig => {
++      return DHT({
++        keys: sbot.dhtInvite.channels(),
++        port: dhtConfig.port,
++      })
++    },
++  })
++}
+
  const createSbot = require('scuttlebot/index')
    .use(require('scuttlebot/plugins/plugins'))
    .use(require('scuttlebot/plugins/master'))
-   .use(require('scuttlebot/plugins/gossip'))
+-  .use(require('scuttlebot/plugins/gossip'))
++  .use(require('@staltz/sbot-gossip'))
    .use(require('scuttlebot/plugins/replicate'))
    .use(require('ssb-friends'))
    .use(require('ssb-blobs'))
@@ -22,10 +43,28 @@ As client:
    .use(require('ssb-about'))
    .use(require('ssb-contacts'))
    .use(require('ssb-query'))
++  .use(dhtTransport) // this one must come before ssb-dht-invite
 +  .use(require('ssb-dht-invite'))
    .use(require('scuttlebot/plugins/invite'))
    .use(require('scuttlebot/plugins/block'))
    .use(require('scuttlebot/plugins/local'))
+```
+
+**Important:** also setup the DHT transport in your ssb-config object:
+
+```diff
+ ...
+ "connections": {
+   "incoming": {
+     "net": [{ "scope": "private, "transform": "shs", "port": 8008 }]
++    "dht": [{ "scope": "public", "transform": "shs", "port": 8423 }]
+   },
+   "outgoing": {
+     "net": [{ "transform": "shs" }]
++    "dht": [{ "transform": "shs" }]
+   }
+ },
+ ...
 ```
 
 ## Plugin API
