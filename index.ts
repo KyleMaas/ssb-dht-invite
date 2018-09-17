@@ -2,13 +2,16 @@ import sleep from 'delay'
 import run = require('promisify-tuple')
 const crypto = require('crypto')
 const Pushable = require('pull-pushable')
+const Notify = require('pull-notify')
 const explain = require('explain-error')
 const debug = require('debug')('ssb:dht-invite')
 
 function init(sbot: any, config: any) {
-  const serverChannels = Pushable()
-  let clientCodesDB: any = null
   let serverCodesDB: any = null
+  let clientCodesDB: any = null
+  const serverChannels = Pushable()
+  const clientCodesCache = new Set<string>()
+  const clientCodesPending = Notify()
 
   function start() {
     if (clientCodesDB && serverCodesDB) return
@@ -128,6 +131,8 @@ function init(sbot: any, config: any) {
     }
     const [err] = await run(clientCodesDB.put)(invite, true)
     if (err) return cb(explain(err, 'Could not save to-claim invite locally'))
+    clientCodesCache.add(invite)
+    clientCodesPending(Array.from(clientCodesCache.values()))
 
     const [err2, {seed, remoteId}] = parseInvite(invite)
     if (err2) return cb(err2)
@@ -154,6 +159,8 @@ function init(sbot: any, config: any) {
 
     const [err5] = await run(clientCodesDB.del)(invite)
     if (err5) return cb(explain(err5, 'Could not delete to-claim invite'))
+    clientCodesCache.delete(invite)
+    clientCodesPending(Array.from(clientCodesCache.values()))
 
     await sleep(100)
 
@@ -176,8 +183,9 @@ function init(sbot: any, config: any) {
     start: start,
     create: create,
     use: use,
-    channels: () => serverChannels,
     accept: accept,
+    channels: () => serverChannels,
+    pendingInvites: () => clientCodesPending.listen(),
   }
 }
 
@@ -188,11 +196,14 @@ module.exports = {
     start: 'async',
     create: 'async',
     use: 'async',
-    channels: 'source',
     accept: 'async',
+    channels: 'source',
+    pendingInvites: 'source',
   },
   permissions: {
-    master: {allow: ['create', 'start', 'channels', 'accept']},
+    master: {
+      allow: ['create', 'start', 'channels', 'accept', 'pendingInvites'],
+    },
     anonymous: {allow: ['use']},
   },
   init: init,

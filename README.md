@@ -42,6 +42,10 @@ Creates and returns a new invite code that can be used **once** with another fri
 
 Pass an invite code to this API and wait for your sbot to connect with the remote friend.
 
+### `pendingInvites()` (source)
+
+Pull stream that delivers arrays of invite codes (strings) that are still pending to be accepted by the invitation creator.
+
 ## (Internal API)
 
 ### `use({seed, feed})` (async)
