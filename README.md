@@ -43,8 +43,8 @@ Replace the canonical gossip plugin, and `use` the multiserver DHT transport **b
    .use(require('ssb-about'))
    .use(require('ssb-contacts'))
    .use(require('ssb-query'))
-+  .use(dhtTransport) // this one must come before ssb-dht-invite
-+  .use(require('ssb-dht-invite'))
++  .use(require('ssb-dht-invite')) // this one must come before dhtTransport
++  .use(dhtTransport)
    .use(require('scuttlebot/plugins/invite'))
    .use(require('scuttlebot/plugins/block'))
    .use(require('scuttlebot/plugins/local'))
