@@ -13,7 +13,7 @@ function init(sbot: any, config: any) {
   const serverCodesCache = new Map<string, string>()
   const serverCodesHosting = Notify()
   const clientCodesCache = new Set<string>()
-  const clientCodesPending = Notify()
+  const clientCodesClaiming = Notify()
 
   function start() {
     if (clientCodesDB && serverCodesDB) return
@@ -149,7 +149,7 @@ function init(sbot: any, config: any) {
     const [err] = await run(clientCodesDB.put)(invite, true)
     if (err) return cb(explain(err, 'Could not save to-claim invite locally'))
     clientCodesCache.add(invite)
-    clientCodesPending(Array.from(clientCodesCache.values()))
+    clientCodesClaiming(Array.from(clientCodesCache.values()))
 
     const [err2, {seed, remoteId}] = parseInvite(invite)
     if (err2) return cb(err2)
@@ -177,7 +177,7 @@ function init(sbot: any, config: any) {
     const [err5] = await run(clientCodesDB.del)(invite)
     if (err5) return cb(explain(err5, 'Could not delete to-claim invite'))
     clientCodesCache.delete(invite)
-    clientCodesPending(Array.from(clientCodesCache.values()))
+    clientCodesClaiming(Array.from(clientCodesCache.values()))
 
     await sleep(100)
 
@@ -203,7 +203,7 @@ function init(sbot: any, config: any) {
     accept: accept,
     channels: () => serverChannels,
     hostingInvites: () => serverCodesHosting.listen(),
-    pendingInvites: () => clientCodesPending.listen(),
+    claimingInvites: () => clientCodesClaiming.listen(),
   }
 }
 
@@ -217,7 +217,7 @@ module.exports = {
     accept: 'async',
     channels: 'source',
     hostingInvites: 'source',
-    pendingInvites: 'source',
+    claimingInvites: 'source',
   },
   permissions: {
     master: {
@@ -227,7 +227,7 @@ module.exports = {
         'channels',
         'accept',
         'hostingInvites',
-        'pendingInvites',
+        'claimingInvites',
       ],
     },
     anonymous: {allow: ['use']},

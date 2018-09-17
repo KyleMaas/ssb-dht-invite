@@ -93,9 +93,9 @@ Pull stream that delivers arrays of `[seed, feedOrUnclaimed]` DHT peers that are
 
 Primarily purpose of this is for the frontend to know what's going on with the invite hosting.
 
-### `pendingInvites()` (source)
+### `claimingInvites()` (source)
 
-Pull stream that delivers arrays of invite codes (strings) that are still pending to be accepted by the invitation creator.
+Pull stream that delivers arrays of invite codes (strings) that are being claimed and still pending to be accepted by the invitation creator.
 
 ## (Internal API)
 
