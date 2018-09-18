@@ -211,8 +211,9 @@ function init(sbot: any, config: any) {
     clientCodesCache.add(invite)
     clientCodesClaiming(Array.from(clientCodesCache.values()))
 
-    const [err2, {seed, remoteId}] = parseInvite(invite)
+    const [err2, parsed] = parseInvite(invite)
     if (err2) return cb(err2)
+    const {seed, remoteId} = parsed;
     const transform = 'shs:' + remoteId
     const addr = invite + '~' + transform
 
