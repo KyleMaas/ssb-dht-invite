@@ -12,11 +12,11 @@ Notice above that you should install these 3 dependencies:
 - `@staltz/sbot-gossip` (a fork of the Scuttlebot gossip plugin)
 - `multiserver-dht` (required for this plugin to work)
 
-Note: only supports Node.js v8.10 or higher, because it utilizes some ES2017 features (async/await).
+Note: only supports Node.js 6 or higher, because it utilizes some ES6 features.
 
 ## Usage
 
-Replace the canonical gossip plugin, and `use` the multiserver DHT transport **before** calling `use` with `ssb-dht-invite`.
+Replace the canonical gossip plugin, and `use` this plugin **before** calling `use` with the multiserver DHT transport.
 
 ```diff
 +var DHT = require('multiserver-dht')
