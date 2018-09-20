@@ -91,7 +91,7 @@ Pass an invite code to this API and wait for your sbot to connect with the remot
 
 ### `hostingInvites()` (source)
 
-Pull stream that delivers arrays of `[seed, feedOrUnclaimed]` DHT peers that are being hosted for remote friends.
+Pull stream that delivers arrays of `{seed: string, claimer: string, online: boolean}` DHT peers that are being hosted for remote friends.
 
 Primarily purpose of this is for the frontend to know what's going on with the invite hosting.
 
