@@ -213,7 +213,7 @@ function init(sbot: any, config: any) {
 
     const [err2, parsed] = parseInvite(invite)
     if (err2) return cb(err2)
-    const {seed, remoteId} = parsed;
+    const {seed, remoteId} = parsed
     const transform = 'shs:' + remoteId
     const addr = invite + '~' + transform
 
@@ -257,11 +257,33 @@ function init(sbot: any, config: any) {
     cb(null, true)
   }
 
+  async function remove(invite: string, cb: (err: any, done?: true) => void) {
+    if (!clientCodesDB || !serverCodesDB) {
+      return cb(
+        new Error('Cannot call dhtInvite.remove() before dhtInvite.start()')
+      )
+    }
+
+    if (clientCodesCache.has(invite)) {
+      const [err] = await run(clientCodesDB.del)(invite)
+      if (err) return cb(explain(err, 'Could not delete client invite code'))
+      clientCodesCache.delete(invite)
+      clientCodesClaiming(Array.from(clientCodesCache.values()))
+    } else if (serverCodesCache.has(invite)) {
+      const [err] = await run(serverCodesDB.del)(invite)
+      if (err) return cb(explain(err, 'Could not delete server invite code'))
+      serverCodesCache.delete(invite)
+      emitServerCodesHosting()
+    }
+    cb(null, true)
+  }
+
   return {
     start: start,
     create: create,
     use: use,
     accept: accept,
+    remove: remove,
     channels: () => serverChannels,
     hostingInvites: () => serverCodesHosting.listen(),
     claimingInvites: () => clientCodesClaiming.listen(),
@@ -276,6 +298,7 @@ module.exports = {
     create: 'async',
     use: 'async',
     accept: 'async',
+    remove: 'async',
     channels: 'source',
     hostingInvites: 'source',
     claimingInvites: 'source',
@@ -287,6 +310,7 @@ module.exports = {
         'start',
         'channels',
         'accept',
+        'remove',
         'hostingInvites',
         'claimingInvites',
       ],
