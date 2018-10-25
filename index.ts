@@ -71,6 +71,12 @@ function init(sbot: any, config: any) {
     )
   }
 
+  function emitServerChannels(map: Map<Seed, any>) {
+    serverChannels.push(
+      Array.from(map.entries()).map(([seed]) => seed + ':' + sbot.id)
+    )
+  }
+
   function start() {
     if (clientCodesDB && serverCodesDB) return
     debug('start()')
@@ -84,10 +90,9 @@ function init(sbot: any, config: any) {
       .on('data', (data: {key: string; value: string}) => {
         const seed = data.key
         const claimer = data.value
-        const channel = seed + ':' + sbot.id
-        debug('server channels: emit %s', channel)
-        serverChannels.push(channel)
+        debug('server channels: emit %s', seed + ':' + sbot.id)
         serverCodesCache.set(seed, {claimer, online: false})
+        emitServerChannels(serverCodesCache)
         emitServerCodesHosting()
         updateServerCodesCacheOnlineStatus()
       })
@@ -115,11 +120,10 @@ function init(sbot: any, config: any) {
     const claimer = 'unclaimed'
     const [err] = await run(serverCodesDB.put)(seed, claimer)
     if (err) return cb(err)
-    const channel = seed + ':' + sbot.id
-    cb(null, 'dht:' + channel)
-    serverChannels.push(channel)
     serverCodesCache.set(seed, {claimer, online: false})
+    emitServerChannels(serverCodesCache)
     emitServerCodesHosting()
+    cb(null, 'dht:' + seed + ':' + sbot.id)
   }
 
   /**
@@ -273,6 +277,7 @@ function init(sbot: any, config: any) {
       const [err] = await run(serverCodesDB.del)(invite)
       if (err) return cb(explain(err, 'Could not delete server invite code'))
       serverCodesCache.delete(invite)
+      emitServerChannels(serverCodesCache)
       emitServerCodesHosting()
     }
     cb(null, true)
