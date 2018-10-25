@@ -27,7 +27,7 @@
     "typescript": "~3.0.3"
   },
   "peerDependencies": {
-    "multiserver-dht": "^3.3.0"
+    "multiserver-dht": "^4.0.0"
   },
   "scripts": {
     "compile": "tsc",
