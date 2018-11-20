@@ -5,6 +5,7 @@ const Pushable = require('pull-pushable')
 const Notify = require('pull-notify')
 const explain = require('explain-error')
 const debug = require('debug')('ssb:dht-invite')
+const pRetry = require('p-retry')
 
 type Seed = string
 type HostingInfo = {claimer: string; online: boolean}
@@ -210,27 +211,32 @@ function init(sbot: any, config: any) {
         new Error('Cannot call dhtInvite.accept() before dhtInvite.start()')
       )
     }
-    const [err] = await run(clientCodesDB.put)(invite, true)
+    var [err] = await run(clientCodesDB.put)(invite, true)
     if (err) return cb(explain(err, 'Could not save to-claim invite locally'))
     clientCodesCache.add(invite)
     clientCodesClaiming(Array.from(clientCodesCache.values()))
 
-    const [err2, parsed] = parseInvite(invite)
-    if (err2) return cb(err2)
+    var [err, parsed] = parseInvite(invite)
+    if (err) return cb(err)
     const {seed, remoteId} = parsed
     const transform = 'shs:' + remoteId
     const addr = invite + '~' + transform
 
     debug('accept() will sbot.connect to remote peer addr: %s', addr)
-    const [err3, rpc] = await run<any>(sbot.connect)(addr)
-    if (err3) return cb(explain(err3, 'Could not connect to DHT server'))
+    const connect = () => run<any>(sbot.connect)(addr)
+    var [err, rpc] = await pRetry(connect, {
+      retries: 9999,
+      factor: 2,
+      minTimeout: 2000,
+      maxTimeout: Infinity,
+    })
+    if (err) return cb(explain(err, 'Could not connect to DHT server'))
     debug('accept() connected to remote sbot')
 
     const req: Msg = {seed: seed, feed: sbot.id}
     debug("accept() will call remote's use(%o)", req)
-    const [err4, res] = await run<Msg>(rpc.dhtInvite.use)(req)
-    if (err4)
-      return cb(explain(err4, 'Could not tell friend to use DHT invite'))
+    var [err, res] = await run<Msg>(rpc.dhtInvite.use)(req)
+    if (err) return cb(explain(err, 'Could not tell friend to use DHT invite'))
     /**
      * Typically, we should close the RPC connection, but in the case of
      * DHT connections, it might take a lot more time for client and server
@@ -239,8 +245,8 @@ function init(sbot: any, config: any) {
      */
     // rpc.close()
 
-    const [err5] = await run(clientCodesDB.del)(invite)
-    if (err5) return cb(explain(err5, 'Could not delete to-claim invite'))
+    var [err] = await run(clientCodesDB.del)(invite)
+    if (err) return cb(explain(err, 'Could not delete to-claim invite'))
     clientCodesCache.delete(invite)
     clientCodesClaiming(Array.from(clientCodesCache.values()))
 
@@ -248,12 +254,12 @@ function init(sbot: any, config: any) {
 
     const friendId = res.feed
     debug('accept() will follow friend %s', friendId)
-    const [err6] = await run(sbot.publish)({
+    var [err] = await run(sbot.publish)({
       type: 'contact',
       contact: friendId,
       following: true,
     })
-    if (err6) return cb(explain(err6, 'Unable to follow friend behind invite'))
+    if (err) return cb(explain(err, 'Unable to follow friend behind invite'))
 
     debug('accept() will add address to gossip %s', addr)
     sbot.gossip.add(addr, 'dht')
