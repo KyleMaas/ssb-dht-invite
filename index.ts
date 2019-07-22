@@ -76,22 +76,27 @@ function init(sbot: any, config: any) {
     )
   }
 
-  function getSublevel(name: string) {
-    if (sbot.sublevel) {
-      return sbot.sublevel(name)
-    } else {
-      const db = sublevel(
-        level(path.join(config.path, 'db'), {valueEncoding: 'json'})
-      )
-      return db.sublevel(name)
-    }
+  async function getSublevel(name: string) {
+    // 1st attempt: use sublevel() provided by ssb-server, if exists
+    if (sbot.sublevel) return sbot.sublevel(name)
+
+    // 2nd attempt: create a sublevel db dependent on a root db
+    const opts = {valueEncoding: 'json'}
+    const rootPath = path.join(config.path, 'db')
+    const [err, rootDb] = await run(level)(rootPath, opts)
+    if (!err && rootDb) return sublevel(rootDb).sublevel(name)
+
+    // 3rd attempt: create an independent level db
+    const targetPath = path.join(config.path, name)
+    const [err2, targetDb] = await run(level)(targetPath, opts)
+    if (!err2 && targetDb) return targetDb
+
+    // Quit:
+    throw err2
   }
 
-  function start() {
-    if (clientCodesDB && serverCodesDB) return
-    debug('start()')
-
-    serverCodesDB = getSublevel('dhtServerCodes')
+  async function setupServerCodesDB() {
+    serverCodesDB = await getSublevel('dhtServerCodes')
     serverCodesDB.get = serverCodesDB.get.bind(serverCodesDB)
     serverCodesDB.put = serverCodesDB.put.bind(serverCodesDB)
     serverCodesDB.del = serverCodesDB.del.bind(serverCodesDB)
@@ -106,8 +111,10 @@ function init(sbot: any, config: any) {
         emitServerCodesHosting()
         updateServerCodesCacheOnlineStatus()
       })
+  }
 
-    clientCodesDB = getSublevel('dhtClientCodes')
+  async function setupClientCodesDB() {
+    clientCodesDB = await getSublevel('dhtClientCodes')
     clientCodesDB.get = clientCodesDB.get.bind(clientCodesDB)
     clientCodesDB.put = clientCodesDB.put.bind(clientCodesDB)
     clientCodesDB.del = clientCodesDB.del.bind(clientCodesDB)
@@ -116,7 +123,14 @@ function init(sbot: any, config: any) {
       .on('data', (seed: string) => {
         accept(seed, () => {})
       })
+  }
 
+  function start() {
+    if (clientCodesDB && serverCodesDB) return
+
+    debug('start()')
+    setupServerCodesDB()
+    setupClientCodesDB()
     initialized = true
   }
 
