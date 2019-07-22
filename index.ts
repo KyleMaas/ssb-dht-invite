@@ -4,6 +4,9 @@ const crypto = require('crypto')
 const Pushable = require('pull-pushable')
 const Notify = require('pull-notify')
 const explain = require('explain-error')
+const level = require('level')
+const sublevel = require('level-sublevel/bytewise')
+const path = require('path')
 const debug = require('debug')('ssb:dht-invite')
 
 type Seed = string
@@ -62,11 +65,7 @@ function init(sbot: any, config: any) {
   function emitServerCodesHosting() {
     serverCodesHosting(
       Array.from(serverCodesCache.entries()).map(
-        ([seed, {claimer, online}]) => ({
-          seed,
-          claimer,
-          online,
-        })
+        ([seed, {claimer, online}]) => ({seed, claimer, online})
       )
     )
   }
@@ -77,11 +76,22 @@ function init(sbot: any, config: any) {
     )
   }
 
+  function getSublevel(name: string) {
+    if (sbot.sublevel) {
+      return sbot.sublevel(name)
+    } else {
+      const db = sublevel(
+        level(path.join(config.path, 'db'), {valueEncoding: 'json'})
+      )
+      return db.sublevel(name)
+    }
+  }
+
   function start() {
     if (clientCodesDB && serverCodesDB) return
     debug('start()')
 
-    serverCodesDB = sbot.sublevel('dhtServerCodes')
+    serverCodesDB = getSublevel('dhtServerCodes')
     serverCodesDB.get = serverCodesDB.get.bind(serverCodesDB)
     serverCodesDB.put = serverCodesDB.put.bind(serverCodesDB)
     serverCodesDB.del = serverCodesDB.del.bind(serverCodesDB)
@@ -97,7 +107,7 @@ function init(sbot: any, config: any) {
         updateServerCodesCacheOnlineStatus()
       })
 
-    clientCodesDB = sbot.sublevel('dhtClientCodes')
+    clientCodesDB = getSublevel('dhtClientCodes')
     clientCodesDB.get = clientCodesDB.get.bind(clientCodesDB)
     clientCodesDB.put = clientCodesDB.put.bind(clientCodesDB)
     clientCodesDB.del = clientCodesDB.del.bind(clientCodesDB)
@@ -217,7 +227,7 @@ function init(sbot: any, config: any) {
 
     const [err2, parsed] = parseInvite(invite)
     if (err2) return cb(err2)
-    const {seed, remoteId} = parsed
+    const {seed, remoteId} = parsed!
     const transform = 'shs:' + remoteId
     const addr = invite + '~' + transform
 
