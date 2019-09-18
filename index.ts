@@ -251,7 +251,7 @@ class dhtInvite {
     cb(null, res)
   }
 
-  @muxrpc('async', {anonymous: 'allow'})
+  @muxrpc('async', {master: 'allow'})
   public accept = async (invite: string, cb: CB<true>) => {
     if (!this.clientCodesDB) {
       return cb(
@@ -309,7 +309,7 @@ class dhtInvite {
     cb(null, true)
   }
 
-  @muxrpc('async', {anonymous: 'allow'})
+  @muxrpc('async', {master: 'allow'})
   public remove = async (invite: string, cb: CB<true>) => {
     if (!this.clientCodesDB || !this.serverCodesDB) {
       return cb(
@@ -332,13 +332,13 @@ class dhtInvite {
     cb(null, true)
   }
 
-  @muxrpc('source', {anonymous: 'allow'})
+  @muxrpc('source', {master: 'allow'})
   public channels = () => this.serverChannels
 
-  @muxrpc('source', {anonymous: 'allow'})
+  @muxrpc('source', {master: 'allow'})
   public hostingInvites = () => this.serverCodesHosting.listen()
 
-  @muxrpc('source', {anonymous: 'allow'})
+  @muxrpc('source', {master: 'allow'})
   public claimingInvites = () => this.clientCodesClaiming.listen()
 }
 
