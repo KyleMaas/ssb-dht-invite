@@ -3,14 +3,15 @@
 _A scuttlebot plugin that shares connection invites via a Distributed Hash Table_. Like the standard `invite` plugin, but over a DHT.
 
 ```
-npm install --save ssb-dht-invite @staltz/sbot-gossip multiserver-dht
+npm install --save ssb-dht-invite ssb-conn multiserver-dht
 ```
 
 Notice above that you should install these 3 dependencies:
 
 - `ssb-dht-invite` (this plugin)
-- `@staltz/sbot-gossip` (a fork of the Scuttlebot gossip plugin)
+- `ssb-conn`
 - `multiserver-dht` (required for this plugin to work)
+- secret-stack >=6.2.0
 
 Note: only supports Node.js 6 or higher, because it utilizes some ES6 features.
 
@@ -36,8 +37,8 @@ Replace the canonical gossip plugin, and `use` this plugin **before** calling `u
  const createSbot = require('scuttlebot/index')
    .use(require('scuttlebot/plugins/plugins'))
    .use(require('scuttlebot/plugins/master'))
--  .use(require('scuttlebot/plugins/gossip'))
-+  .use(require('@staltz/sbot-gossip'))
+-  .use(require('ssb-gossip'))
++  .use(require('ssb-conn'))
    .use(require('scuttlebot/plugins/replicate'))
    .use(require('ssb-friends'))
    .use(require('ssb-blobs'))

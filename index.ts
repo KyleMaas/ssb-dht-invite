@@ -1,5 +1,6 @@
 import sleep from 'delay'
 import run = require('promisify-tuple')
+import {plugin, muxrpc} from 'secret-stack-decorators'
 const crypto = require('crypto')
 const Pushable = require('pull-pushable')
 const Notify = require('pull-notify')
@@ -11,49 +12,74 @@ const debug = require('debug')('ssb:dht-invite')
 
 type Seed = string
 type HostingInfo = {claimer: string; online: boolean}
+type CB<T> = (err?: any, val?: T) => void
 
-function init(sbot: any, config: any) {
-  let initialized: boolean = false
-  let serverCodesDB: any = null
-  let clientCodesDB: any = null
-  const serverChannels = Pushable()
-  const serverCodesCache = new Map<Seed, HostingInfo>()
-  const serverCodesHosting = Notify()
-  const clientCodesCache = new Set<string>()
-  const clientCodesClaiming = Notify()
-  const onlineRemoteClients = new Set<string>()
+/**
+ * The type of requests and responses exchanged during invite claiming.
+ */
+type Msg = {feed: string; seed: string}
 
-  /**
-   * Update record of online RPC clients using DHT transport.
-   */
-  sbot.on('rpc:connect', (rpc: any, isClient: boolean) => {
-    if (rpc.meta !== 'dht' || isClient) return
+type ParseInviteReturn = [any] | [undefined, {seed: string; remoteId: string}]
 
-    onlineRemoteClients.add(rpc.id)
-    if (initialized) {
-      updateServerCodesCacheOnlineStatus()
-      emitServerCodesHosting()
-    }
+@plugin('1.0.0')
+class dhtInvite {
+  private readonly sbot: any
+  private readonly config: any
+  private readonly serverChannels: any
+  private readonly serverCodesCache: Map<Seed, HostingInfo>
+  private readonly serverCodesHosting: any
+  private readonly clientCodesCache: Set<string>
+  private readonly clientCodesClaiming: any
+  private readonly onlineRemoteClients: Set<string>
+  private initialized: boolean = false
+  private serverCodesDB: any = null
+  private clientCodesDB: any = null
 
-    rpc.on('closed', () => {
-      onlineRemoteClients.delete(rpc.id)
-      if (initialized) {
-        updateServerCodesCacheOnlineStatus()
-        emitServerCodesHosting()
+  constructor(sbot: any, config: any) {
+    this.sbot = sbot
+    this.config = config
+    this.serverChannels = Pushable()
+    this.serverCodesCache = new Map<Seed, HostingInfo>()
+    this.serverCodesHosting = Notify()
+    this.clientCodesCache = new Set<string>()
+    this.clientCodesClaiming = Notify()
+    this.onlineRemoteClients = new Set<string>()
+    this.initialized = false
+    this.serverCodesDB = null
+    this.clientCodesDB = null
+
+    /**
+     * Update record of online RPC clients using DHT transport.
+     */
+    sbot.on('rpc:connect', (rpc: any, isClient: boolean) => {
+      if (rpc.meta !== 'dht' || isClient) return
+
+      this.onlineRemoteClients.add(rpc.id)
+      if (this.initialized) {
+        this.updateServerCodesCacheOnlineStatus()
+        this.emitServerCodesHosting()
       }
+
+      rpc.on('closed', () => {
+        this.onlineRemoteClients.delete(rpc.id)
+        if (this.initialized) {
+          this.updateServerCodesCacheOnlineStatus()
+          this.emitServerCodesHosting()
+        }
+      })
     })
-  })
+  }
 
   /**
    * Update the online status of the server codes cache.
    */
-  function updateServerCodesCacheOnlineStatus() {
-    serverCodesCache.forEach((hInfo: HostingInfo, seed: Seed) => {
+  private updateServerCodesCacheOnlineStatus() {
+    this.serverCodesCache.forEach((hInfo: HostingInfo, seed: Seed) => {
       const claimer = hInfo.claimer
       if (claimer === 'unclaimed') return
-      const online = onlineRemoteClients.has(claimer)
+      const online = this.onlineRemoteClients.has(claimer)
       if (hInfo.online !== online) {
-        serverCodesCache.set(seed, {claimer, online})
+        this.serverCodesCache.set(seed, {claimer, online})
       }
     })
   }
@@ -62,32 +88,32 @@ function init(sbot: any, config: any) {
    * Emit an Array<{seed, claimer, online}> on the hostingInvites
    * notifier stream.
    */
-  function emitServerCodesHosting() {
-    serverCodesHosting(
-      Array.from(serverCodesCache.entries()).map(
+  private emitServerCodesHosting() {
+    this.serverCodesHosting(
+      Array.from(this.serverCodesCache.entries()).map(
         ([seed, {claimer, online}]) => ({seed, claimer, online})
       )
     )
   }
 
-  function emitServerChannels(map: Map<Seed, any>) {
-    serverChannels.push(
-      Array.from(map.entries()).map(([seed]) => seed + ':' + sbot.id)
+  private emitServerChannels(map: Map<Seed, any>) {
+    this.serverChannels.push(
+      Array.from(map.entries()).map(([seed]) => seed + ':' + this.sbot.id)
     )
   }
 
-  async function getSublevel(name: string) {
+  private async getSublevel(name: string) {
     // 1st attempt: use sublevel() provided by ssb-server, if exists
-    if (sbot.sublevel) return sbot.sublevel(name)
+    if (this.sbot.sublevel) return this.sbot.sublevel(name)
 
     // 2nd attempt: create a sublevel db dependent on a root db
     const opts = {valueEncoding: 'json'}
-    const rootPath = path.join(config.path, 'db')
+    const rootPath = path.join(this.config.path, 'db')
     const [err, rootDb] = await run(level)(rootPath, opts)
     if (!err && rootDb) return sublevel(rootDb).sublevel(name)
 
     // 3rd attempt: create an independent level db
-    const targetPath = path.join(config.path, name)
+    const targetPath = path.join(this.config.path, name)
     const [err2, targetDb] = await run(level)(targetPath, opts)
     if (!err2 && targetDb) return targetDb
 
@@ -95,108 +121,40 @@ function init(sbot: any, config: any) {
     throw err2
   }
 
-  async function setupServerCodesDB() {
-    serverCodesDB = await getSublevel('dhtServerCodes')
-    serverCodesDB.get = serverCodesDB.get.bind(serverCodesDB)
-    serverCodesDB.put = serverCodesDB.put.bind(serverCodesDB)
-    serverCodesDB.del = serverCodesDB.del.bind(serverCodesDB)
-    serverCodesDB
+  private async setupServerCodesDB() {
+    this.serverCodesDB = await this.getSublevel('dhtServerCodes')
+    this.serverCodesDB.get = this.serverCodesDB.get.bind(this.serverCodesDB)
+    this.serverCodesDB.put = this.serverCodesDB.put.bind(this.serverCodesDB)
+    this.serverCodesDB.del = this.serverCodesDB.del.bind(this.serverCodesDB)
+    this.serverCodesDB
       .createReadStream()
       .on('data', (data: {key: string; value: string}) => {
         const seed = data.key
         const claimer = data.value
-        debug('server channels: emit %s', seed + ':' + sbot.id)
-        serverCodesCache.set(seed, {claimer, online: false})
-        emitServerChannels(serverCodesCache)
-        emitServerCodesHosting()
-        updateServerCodesCacheOnlineStatus()
+        debug('server channels: emit %s', seed + ':' + this.sbot.id)
+        this.serverCodesCache.set(seed, {claimer, online: false})
+        this.emitServerChannels(this.serverCodesCache)
+        this.emitServerCodesHosting()
+        this.updateServerCodesCacheOnlineStatus()
       })
   }
 
-  async function setupClientCodesDB() {
-    clientCodesDB = await getSublevel('dhtClientCodes')
-    clientCodesDB.get = clientCodesDB.get.bind(clientCodesDB)
-    clientCodesDB.put = clientCodesDB.put.bind(clientCodesDB)
-    clientCodesDB.del = clientCodesDB.del.bind(clientCodesDB)
-    clientCodesDB
+  private async setupClientCodesDB() {
+    this.clientCodesDB = await this.getSublevel('dhtClientCodes')
+    this.clientCodesDB.get = this.clientCodesDB.get.bind(this.clientCodesDB)
+    this.clientCodesDB.put = this.clientCodesDB.put.bind(this.clientCodesDB)
+    this.clientCodesDB.del = this.clientCodesDB.del.bind(this.clientCodesDB)
+    this.clientCodesDB
       .createReadStream({keys: true, values: false})
       .on('data', (seed: string) => {
-        accept(seed, () => {})
+        this.accept(seed, () => {})
       })
   }
-
-  function start() {
-    if (clientCodesDB && serverCodesDB) return
-
-    debug('start()')
-    setupServerCodesDB()
-    setupClientCodesDB()
-    initialized = true
-  }
-
-  async function create(cb: (err: any, inviteCode?: string) => void) {
-    if (!serverCodesDB) {
-      return cb(
-        new Error('Cannot call dhtInvite.create() before dhtInvite.start()')
-      )
-    }
-    const seed = crypto.randomBytes(32).toString('base64')
-    const claimer = 'unclaimed'
-    const [err] = await run(serverCodesDB.put)(seed, claimer)
-    if (err) return cb(err)
-    serverCodesCache.set(seed, {claimer, online: false})
-    emitServerChannels(serverCodesCache)
-    emitServerCodesHosting()
-    cb(null, 'dht:' + seed + ':' + sbot.id)
-  }
-
-  /**
-   * The type of requests and responses exchanged during invite claiming.
-   */
-  type Msg = {feed: string; seed: string}
-
-  async function use(req: Msg, cb: (err: any, res?: Msg) => void) {
-    if (!serverCodesDB) {
-      return cb(
-        new Error('Cannot call dhtInvite.use() before dhtInvite.start()')
-      )
-    }
-
-    const seed = req.seed
-    const friendId = req.feed
-    debug('use() called with request %o', req)
-    const [err, claimer] = await run<string>(serverCodesDB.get)(seed)
-    if (err)
-      return cb(explain(err, 'Cannot `use` an invite that does not exist'))
-    if (claimer !== 'unclaimed') {
-      return cb(new Error('Cannot `use` an already claimed invite'))
-    }
-
-    debug('use() will claim invite')
-    const [err2] = await run(serverCodesDB.put)(seed, friendId)
-    if (err2) return cb(err2)
-    serverCodesCache.set(seed, {claimer: friendId, online: true})
-    emitServerCodesHosting()
-
-    debug('use() will follow remote friend')
-    const [err3] = await run(sbot.publish)({
-      type: 'contact',
-      contact: friendId,
-      following: true,
-    })
-    if (err3) return cb(err3)
-
-    const res: Msg = {seed: seed, feed: sbot.id}
-    debug('use() will respond with %o', res)
-    cb(null, res)
-  }
-
-  type ParseInviteReturn = [any] | [undefined, {seed: string; remoteId: string}]
 
   /**
    * Given an invite code as a string, return the seed and remoteId.
    */
-  function parseInvite(invite: string): ParseInviteReturn {
+  private parseInvite(invite: string): ParseInviteReturn {
     if (typeof invite !== 'string' || invite.length === 0) {
       return [new Error('Cannot `accept` the DHT invite, it is missing')]
     }
@@ -228,29 +186,95 @@ function init(sbot: any, config: any) {
     return [undefined, {seed, remoteId}]
   }
 
-  async function accept(invite: string, cb: (err: any, done?: true) => void) {
-    if (!clientCodesDB) {
+  @muxrpc('sync', {master: 'allow'})
+  public start = (cb: CB<true>) => {
+    if (this.clientCodesDB && this.serverCodesDB) return cb(null, true)
+
+    debug('start()')
+    this.setupServerCodesDB()
+    this.setupClientCodesDB()
+    this.initialized = true
+    cb(null, true)
+  }
+
+  @muxrpc('async', {master: 'allow'})
+  public create = async (cb: CB<string>) => {
+    if (!this.serverCodesDB) {
+      return cb(
+        new Error('Cannot call dhtInvite.create() before dhtInvite.start()')
+      )
+    }
+    const seed = crypto.randomBytes(32).toString('base64')
+    const claimer = 'unclaimed'
+    const [err] = await run(this.serverCodesDB.put)(seed, claimer)
+    if (err) return cb(err)
+    this.serverCodesCache.set(seed, {claimer, online: false})
+    this.emitServerChannels(this.serverCodesCache)
+    this.emitServerCodesHosting()
+    cb(null, 'dht:' + seed + ':' + this.sbot.id)
+  }
+
+  @muxrpc('async', {anonymous: 'allow'})
+  public use = async (req: Msg, cb: CB<Msg>) => {
+    if (!this.serverCodesDB) {
+      return cb(
+        new Error('Cannot call dhtInvite.use() before dhtInvite.start()')
+      )
+    }
+
+    const seed = req.seed
+    const friendId = req.feed
+    debug('use() called with request %o', req)
+    const [err, claimer] = await run<string>(this.serverCodesDB.get)(seed)
+    if (err)
+      return cb(explain(err, 'Cannot `use` an invite that does not exist'))
+    if (claimer !== 'unclaimed') {
+      return cb(new Error('Cannot `use` an already claimed invite'))
+    }
+
+    debug('use() will claim invite')
+    const [err2] = await run(this.serverCodesDB.put)(seed, friendId)
+    if (err2) return cb(err2)
+    this.serverCodesCache.set(seed, {claimer: friendId, online: true})
+    this.emitServerCodesHosting()
+
+    debug('use() will follow remote friend')
+    const [err3] = await run(this.sbot.publish)({
+      type: 'contact',
+      contact: friendId,
+      following: true,
+    })
+    if (err3) return cb(err3)
+
+    const res: Msg = {seed: seed, feed: this.sbot.id}
+    debug('use() will respond with %o', res)
+    cb(null, res)
+  }
+
+  @muxrpc('async', {anonymous: 'allow'})
+  public accept = async (invite: string, cb: CB<true>) => {
+    if (!this.clientCodesDB) {
       return cb(
         new Error('Cannot call dhtInvite.accept() before dhtInvite.start()')
       )
     }
-    const [err] = await run(clientCodesDB.put)(invite, true)
+    const [err] = await run(this.clientCodesDB.put)(invite, true)
     if (err) return cb(explain(err, 'Could not save to-claim invite locally'))
-    clientCodesCache.add(invite)
-    clientCodesClaiming(Array.from(clientCodesCache.values()))
+    this.clientCodesCache.add(invite)
+    this.clientCodesClaiming(Array.from(this.clientCodesCache.values()))
 
-    const [err2, parsed] = parseInvite(invite)
+    const [err2, parsed] = this.parseInvite(invite)
     if (err2) return cb(err2)
     const {seed, remoteId} = parsed!
     const transform = 'shs:' + remoteId
     const addr = invite + '~' + transform
 
     debug('accept() will sbot.connect to remote peer addr: %s', addr)
-    const [err3, rpc] = await run<any>(sbot.connect)(addr)
+    const [err3, rpc] = await run<any>(this.sbot.connect)(addr)
     if (err3) return cb(explain(err3, 'Could not connect to DHT server'))
     debug('accept() connected to remote sbot')
 
-    const req: Msg = {seed: seed, feed: sbot.id}
+    const req: Msg = {seed: seed, feed: this.sbot.id}
     debug("accept() will call remote's use(%o)", req)
     const [err4, res] = await run<Msg>(rpc.dhtInvite.use)(req)
     if (err4)
@@ -263,16 +287,16 @@ function init(sbot: any, config: any) {
      */
     // rpc.close()
 
-    const [err5] = await run(clientCodesDB.del)(invite)
+    const [err5] = await run(this.clientCodesDB.del)(invite)
     if (err5) return cb(explain(err5, 'Could not delete to-claim invite'))
-    clientCodesCache.delete(invite)
-    clientCodesClaiming(Array.from(clientCodesCache.values()))
+    this.clientCodesCache.delete(invite)
+    this.clientCodesClaiming(Array.from(this.clientCodesCache.values()))
 
     await sleep(100)
 
     const friendId = res.feed
     debug('accept() will follow friend %s', friendId)
-    const [err6] = await run(sbot.publish)({
+    const [err6] = await run(this.sbot.publish)({
       type: 'contact',
       contact: friendId,
       following: true,
@@ -280,71 +304,42 @@ function init(sbot: any, config: any) {
     if (err6) return cb(explain(err6, 'Unable to follow friend behind invite'))
 
     debug('accept() will add address to gossip %s', addr)
-    sbot.gossip.add(addr, 'dht')
+    this.sbot.gossip.add(addr, 'dht')
 
     cb(null, true)
   }
 
-  async function remove(invite: string, cb: (err: any, done?: true) => void) {
-    if (!clientCodesDB || !serverCodesDB) {
+  @muxrpc('async', {anonymous: 'allow'})
+  public remove = async (invite: string, cb: CB<true>) => {
+    if (!this.clientCodesDB || !this.serverCodesDB) {
       return cb(
         new Error('Cannot call dhtInvite.remove() before dhtInvite.start()')
       )
     }
 
-    if (clientCodesCache.has(invite)) {
-      const [err] = await run(clientCodesDB.del)(invite)
+    if (this.clientCodesCache.has(invite)) {
+      const [err] = await run(this.clientCodesDB.del)(invite)
       if (err) return cb(explain(err, 'Could not delete client invite code'))
-      clientCodesCache.delete(invite)
-      clientCodesClaiming(Array.from(clientCodesCache.values()))
-    } else if (serverCodesCache.has(invite)) {
-      const [err] = await run(serverCodesDB.del)(invite)
+      this.clientCodesCache.delete(invite)
+      this.clientCodesClaiming(Array.from(this.clientCodesCache.values()))
+    } else if (this.serverCodesCache.has(invite)) {
+      const [err] = await run(this.serverCodesDB.del)(invite)
       if (err) return cb(explain(err, 'Could not delete server invite code'))
-      serverCodesCache.delete(invite)
-      emitServerChannels(serverCodesCache)
-      emitServerCodesHosting()
+      this.serverCodesCache.delete(invite)
+      this.emitServerChannels(this.serverCodesCache)
+      this.emitServerCodesHosting()
     }
     cb(null, true)
   }
 
-  return {
-    start: start,
-    create: create,
-    use: use,
-    accept: accept,
-    remove: remove,
-    channels: () => serverChannels,
-    hostingInvites: () => serverCodesHosting.listen(),
-    claimingInvites: () => clientCodesClaiming.listen(),
-  }
+  @muxrpc('source', {anonymous: 'allow'})
+  public channels = () => this.serverChannels
+
+  @muxrpc('source', {anonymous: 'allow'})
+  public hostingInvites = () => this.serverCodesHosting.listen()
+
+  @muxrpc('source', {anonymous: 'allow'})
+  public claimingInvites = () => this.clientCodesClaiming.listen()
 }
 
-module.exports = {
-  name: 'dhtInvite',
-  version: '1.0.0',
-  manifest: {
-    start: 'async',
-    create: 'async',
-    use: 'async',
-    accept: 'async',
-    remove: 'async',
-    channels: 'source',
-    hostingInvites: 'source',
-    claimingInvites: 'source',
-  },
-  permissions: {
-    master: {
-      allow: [
-        'create',
-        'start',
-        'channels',
-        'accept',
-        'remove',
-        'hostingInvites',
-        'claimingInvites',
-      ],
-    },
-    anonymous: {allow: ['use']},
-  },
-  init: init,
-}
+module.exports = dhtInvite
