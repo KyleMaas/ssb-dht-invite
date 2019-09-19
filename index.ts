@@ -4,6 +4,7 @@ import {plugin, muxrpc} from 'secret-stack-decorators'
 const crypto = require('crypto')
 const Pushable = require('pull-pushable')
 const Notify = require('pull-notify')
+const DHT = require('multiserver-dht')
 const explain = require('explain-error')
 const level = require('level')
 const sublevel = require('level-sublevel/bytewise')
@@ -48,11 +49,13 @@ class dhtInvite {
     this.serverCodesDB = null
     this.clientCodesDB = null
 
-    /**
-     * Update record of online RPC clients using DHT transport.
-     */
-    ssb.on('rpc:connect', (rpc: any, isClient: boolean) => {
-      if (rpc.meta !== 'dht' || isClient) return
+    this.init()
+  }
+
+  private init() {
+    // Update record of online RPC clients using DHT transport.
+    this.ssb.on('rpc:connect', (rpc: any, weAreClient: boolean) => {
+      if (rpc.meta !== 'dht' || weAreClient) return
 
       this.onlineRemoteClients.add(rpc.id)
       if (this.initialized) {
@@ -67,6 +70,12 @@ class dhtInvite {
           this.emitServerCodesHosting()
         }
       })
+    })
+
+    this.ssb.multiserver.transport({
+      name: 'dht',
+      create: (dhtConfig: any) =>
+        DHT({keys: this.serverChannels, port: dhtConfig.port}),
     })
   }
 
@@ -331,9 +340,6 @@ class dhtInvite {
     }
     cb(null, true)
   }
-
-  @muxrpc('source', {master: 'allow'})
-  public channels = () => this.serverChannels
 
   @muxrpc('source', {master: 'allow'})
   public hostingInvites = () => this.serverCodesHosting.listen()

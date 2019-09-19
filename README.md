@@ -3,54 +3,27 @@
 _A scuttlebot plugin that shares connection invites via a Distributed Hash Table_. Like the standard `invite` plugin, but over a DHT.
 
 ```
-npm install --save ssb-dht-invite ssb-conn multiserver-dht
+npm install --save ssb-dht-invite
 ```
 
-Notice above that you should install these 3 dependencies:
+Pre-requisites:
 
-- `ssb-dht-invite` (this plugin)
-- `ssb-conn`
-- `multiserver-dht` (required for this plugin to work)
-- secret-stack >=6.2.0
-
-Note: only supports Node.js 6 or higher, because it utilizes some ES6 features.
+- [ssb-conn](https://github.com/staltz/ssb-conn)
+- [secret-stack](https://github.com/ssbc/secret-stack) >=6.2.0
+- Node.js 6 or higher, because it utilizes some ES6 features
 
 ## Usage
 
-Replace the canonical gossip plugin, and `use` this plugin **before** calling `use` with the multiserver DHT transport.
-
 ```diff
-+var DHT = require('multiserver-dht')
-
-+function dhtTransport(sbot) {
-+  sbot.multiserver.transport({
-+    name: 'dht',
-+    create: dhtConfig => {
-+      return DHT({
-+        keys: sbot.dhtInvite.channels(),
-+        port: dhtConfig.port,
-+      })
-+    },
-+  })
-+}
-
  const createSbot = require('scuttlebot/index')
    .use(require('scuttlebot/plugins/plugins'))
-   .use(require('scuttlebot/plugins/master'))
--  .use(require('ssb-gossip'))
-+  .use(require('ssb-conn'))
-   .use(require('scuttlebot/plugins/replicate'))
+   .use(require('ssb-master'))
+   .use(require('ssb-conn'))
+   .use(require('ssb-lan'))
++  .use(require('ssb-dht-invite'))
+   .use(require('ssb-replicate'))
    .use(require('ssb-friends'))
-   .use(require('ssb-blobs'))
-   .use(require('ssb-private'))
-   .use(require('ssb-about'))
-   .use(require('ssb-contacts'))
-   .use(require('ssb-query'))
-+  .use(require('ssb-dht-invite')) // this one must come before dhtTransport
-+  .use(dhtTransport)
-   .use(require('scuttlebot/plugins/invite'))
-   .use(require('scuttlebot/plugins/block'))
-   .use(require('scuttlebot/plugins/local'))
+   .call(null, cfg)
 ```
 
 **Important:** also setup the DHT transport in your ssb-config object:
@@ -107,7 +80,3 @@ Pull stream that delivers arrays of invite codes (strings) that are being claime
 *Used internally by this plugin to exchange the invite code over RPC*. Don't bother about this.
 
 This API is called remotely by a trusted-or-untrusted peer who wants to "claim" an invite and make us follow them. The remote peer claims the invite by passing it ("seed") alongside the remote peer's id ("feed").
-
-### `channels()` (source)
-
-*Used internally by this plugin, represents all DHT channels where the local sbot will create servers*. Don't bother about this.
