@@ -23,7 +23,7 @@ type ParseInviteReturn = [any] | [undefined, {seed: string; remoteId: string}]
 
 @plugin('1.0.0')
 class dhtInvite {
-  private readonly sbot: any
+  private readonly ssb: any
   private readonly config: any
   private readonly serverChannels: any
   private readonly serverCodesCache: Map<Seed, HostingInfo>
@@ -35,8 +35,8 @@ class dhtInvite {
   private serverCodesDB: any = null
   private clientCodesDB: any = null
 
-  constructor(sbot: any, config: any) {
-    this.sbot = sbot
+  constructor(ssb: any, config: any) {
+    this.ssb = ssb
     this.config = config
     this.serverChannels = Pushable()
     this.serverCodesCache = new Map<Seed, HostingInfo>()
@@ -51,7 +51,7 @@ class dhtInvite {
     /**
      * Update record of online RPC clients using DHT transport.
      */
-    sbot.on('rpc:connect', (rpc: any, isClient: boolean) => {
+    ssb.on('rpc:connect', (rpc: any, isClient: boolean) => {
       if (rpc.meta !== 'dht' || isClient) return
 
       this.onlineRemoteClients.add(rpc.id)
@@ -98,13 +98,13 @@ class dhtInvite {
 
   private emitServerChannels(map: Map<Seed, any>) {
     this.serverChannels.push(
-      Array.from(map.entries()).map(([seed]) => seed + ':' + this.sbot.id)
+      Array.from(map.entries()).map(([seed]) => seed + ':' + this.ssb.id)
     )
   }
 
   private async getSublevel(name: string) {
     // 1st attempt: use sublevel() provided by ssb-server, if exists
-    if (this.sbot.sublevel) return this.sbot.sublevel(name)
+    if (this.ssb.sublevel) return this.ssb.sublevel(name)
 
     // 2nd attempt: create a sublevel db dependent on a root db
     const opts = {valueEncoding: 'json'}
@@ -131,7 +131,7 @@ class dhtInvite {
       .on('data', (data: {key: string; value: string}) => {
         const seed = data.key
         const claimer = data.value
-        debug('server channels: emit %s', seed + ':' + this.sbot.id)
+        debug('server channels: emit %s', seed + ':' + this.ssb.id)
         this.serverCodesCache.set(seed, {claimer, online: false})
         this.emitServerChannels(this.serverCodesCache)
         this.emitServerCodesHosting()
@@ -211,7 +211,7 @@ class dhtInvite {
     this.serverCodesCache.set(seed, {claimer, online: false})
     this.emitServerChannels(this.serverCodesCache)
     this.emitServerCodesHosting()
-    cb(null, 'dht:' + seed + ':' + this.sbot.id)
+    cb(null, 'dht:' + seed + ':' + this.ssb.id)
   }
 
   @muxrpc('async', {anonymous: 'allow'})
@@ -239,14 +239,14 @@ class dhtInvite {
     this.emitServerCodesHosting()
 
     debug('use() will follow remote friend')
-    const [err3] = await run(this.sbot.publish)({
+    const [err3] = await run(this.ssb.publish)({
       type: 'contact',
       contact: friendId,
       following: true,
     })
     if (err3) return cb(err3)
 
-    const res: Msg = {seed: seed, feed: this.sbot.id}
+    const res: Msg = {seed: seed, feed: this.ssb.id}
     debug('use() will respond with %o', res)
     cb(null, res)
   }
@@ -270,11 +270,11 @@ class dhtInvite {
     const addr = invite + '~' + transform
 
     debug('accept() will sbot.connect to remote peer addr: %s', addr)
-    const [err3, rpc] = await run<any>(this.sbot.connect)(addr)
+    const [err3, rpc] = await run<any>(this.ssb.connect)(addr)
     if (err3) return cb(explain(err3, 'Could not connect to DHT server'))
     debug('accept() connected to remote sbot')
 
-    const req: Msg = {seed: seed, feed: this.sbot.id}
+    const req: Msg = {seed: seed, feed: this.ssb.id}
     debug("accept() will call remote's use(%o)", req)
     const [err4, res] = await run<Msg>(rpc.dhtInvite.use)(req)
     if (err4)
@@ -296,7 +296,7 @@ class dhtInvite {
 
     const friendId = res.feed
     debug('accept() will follow friend %s', friendId)
-    const [err6] = await run(this.sbot.publish)({
+    const [err6] = await run(this.ssb.publish)({
       type: 'contact',
       contact: friendId,
       following: true,
@@ -304,7 +304,7 @@ class dhtInvite {
     if (err6) return cb(explain(err6, 'Unable to follow friend behind invite'))
 
     debug('accept() will add address to gossip %s', addr)
-    this.sbot.gossip.add(addr, 'dht')
+    this.ssb.gossip.add(addr, 'dht')
 
     cb(null, true)
   }
