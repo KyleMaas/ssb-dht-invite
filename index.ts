@@ -2,6 +2,7 @@ import sleep from 'delay'
 import run = require('promisify-tuple')
 import {plugin, muxrpc} from 'secret-stack-decorators'
 const crypto = require('crypto')
+const pull = require('pull-stream')
 const Pushable = require('pull-pushable')
 const Notify = require('pull-notify')
 const DHT = require('multiserver-dht')
@@ -21,6 +22,16 @@ type CB<T> = (err?: any, val?: T) => void
 type Msg = {feed: string; seed: string}
 
 type ParseInviteReturn = [Error] | [undefined, {seed: string; remoteId: string}]
+
+function dhtClientConnected({type, address, key, details}: any) {
+  if (type !== 'connected') return false
+  if (!address.startsWith('dht:')) return false
+  if (!key) return false
+  if (!details || !details.rpc) return false
+  if (details.rpc.meta !== 'dht') return false
+  if (details.isClient /* == "they are not the client, WE are" */) return false
+  return true
+}
 
 @plugin('1.0.0')
 class dhtInvite {
@@ -53,24 +64,30 @@ class dhtInvite {
   }
 
   private init() {
+    if (!this.ssb.conn || !this.ssb.conn.connect || !this.ssb.conn.hub) {
+      throw new Error('plugin ssb-dht-invite requires ssb-conn to be installed')
+    }
+
     // Update record of online RPC clients using DHT transport.
-    this.ssb.on('rpc:connect', (rpc: any, weAreClient: boolean) => {
-      if (rpc.meta !== 'dht' || weAreClient) return
-
-      this.onlineRemoteClients.add(rpc.id)
-      if (this.initialized) {
-        this.updateServerCodesCacheOnlineStatus()
-        this.emitServerCodesHosting()
-      }
-
-      rpc.on('closed', () => {
-        this.onlineRemoteClients.delete(rpc.id)
+    pull(
+      this.ssb.conn.hub().listen(),
+      pull.filter(dhtClientConnected),
+      pull.drain(({key, details}: any) => {
+        this.onlineRemoteClients.add(key)
         if (this.initialized) {
           this.updateServerCodesCacheOnlineStatus()
           this.emitServerCodesHosting()
         }
+
+        details.rpc.on('closed', () => {
+          this.onlineRemoteClients.delete(key)
+          if (this.initialized) {
+            this.updateServerCodesCacheOnlineStatus()
+            this.emitServerCodesHosting()
+          }
+        })
       })
-    })
+    )
 
     this.ssb.multiserver.transport({
       name: 'dht',
@@ -278,10 +295,10 @@ class dhtInvite {
     const transform = 'shs:' + remoteId
     const addr = invite + '~' + transform
 
-    debug('accept() will sbot.connect to remote peer addr: %s', addr)
-    const [err3, rpc] = await run<any>(this.ssb.connect)(addr)
-    if (err3) return cb(explain(err3, 'Could not connect to DHT server'))
-    debug('accept() connected to remote sbot')
+    debug('accept() will ssb.conn.connect to remote peer addr: %s', addr)
+    const [e3, rpc] = await run<any>(this.ssb.conn.connect)(addr, {type: 'dht'})
+    if (e3) return cb(explain(e3, 'Could not connect to DHT server'))
+    debug('accept() connected to remote DHT peer')
 
     const req: Msg = {seed: seed, feed: this.ssb.id}
     debug("accept() will call remote's use(%o)", req)
@@ -311,9 +328,6 @@ class dhtInvite {
       following: true,
     })
     if (err6) return cb(explain(err6, 'Unable to follow friend behind invite'))
-
-    debug('accept() will add address to gossip %s', addr)
-    this.ssb.gossip.add(addr, 'dht')
 
     cb(null, true)
   }
