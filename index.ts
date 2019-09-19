@@ -33,6 +33,13 @@ function dhtClientConnected({type, address, key, details}: any) {
   return true
 }
 
+function dhtPeerDisconnected({type, address, key}: any) {
+  if (type !== 'disconnected') return false
+  if (!address.startsWith('dht:')) return false
+  if (!key) return false
+  return true
+}
+
 @plugin('1.0.0')
 class dhtInvite {
   private readonly ssb: any
@@ -72,23 +79,28 @@ class dhtInvite {
     pull(
       this.ssb.conn.hub().listen(),
       pull.filter(dhtClientConnected),
-      pull.drain(({key, details}: any) => {
+      pull.drain(({key}: {key: string}) => {
         this.onlineRemoteClients.add(key)
         if (this.initialized) {
           this.updateServerCodesCacheOnlineStatus()
           this.emitServerCodesHosting()
         }
-
-        details.rpc.on('closed', () => {
-          this.onlineRemoteClients.delete(key)
-          if (this.initialized) {
-            this.updateServerCodesCacheOnlineStatus()
-            this.emitServerCodesHosting()
-          }
-        })
+      })
+    )
+    pull(
+      this.ssb.conn.hub().listen(),
+      pull.filter(dhtPeerDisconnected),
+      pull.drain(({key}: {key: string}) => {
+        if (!this.onlineRemoteClients.has(key)) return
+        this.onlineRemoteClients.delete(key)
+        if (this.initialized) {
+          this.updateServerCodesCacheOnlineStatus()
+          this.emitServerCodesHosting()
+        }
       })
     )
 
+    // Install the multiserver plugin for DHT
     this.ssb.multiserver.transport({
       name: 'dht',
       create: (dhtConfig: any) =>
