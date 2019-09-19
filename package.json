@@ -19,7 +19,7 @@
     "explain-error": "~1.0.4",
     "level": "^5.0.1",
     "level-sublevel": "^6.6.5",
-    "multiserver-dht": "^4.1.0",
+    "multiserver-dht": "^4.1.1",
     "promisify-tuple": "^1.0.0",
     "pull-notify": "~0.1.1",
     "pull-pushable": "~2.2.0",
