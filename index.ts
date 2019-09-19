@@ -19,7 +19,7 @@ type CB<T> = (err?: any, val?: T) => void
  */
 type Msg = {feed: string; seed: string}
 
-type ParseInviteReturn = [any] | [undefined, {seed: string; remoteId: string}]
+type ParseInviteReturn = [Error] | [undefined, {seed: string; remoteId: string}]
 
 @plugin('1.0.0')
 class dhtInvite {
