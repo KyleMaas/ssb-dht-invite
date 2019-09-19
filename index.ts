@@ -292,7 +292,8 @@ class dhtInvite {
     const [err2, parsed] = this.parseInvite(invite)
     if (err2) return cb(err2)
     const {seed, remoteId} = parsed!
-    const transform = 'shs:' + remoteId
+    const pubkey = remoteId.replace(/^\@/, '').replace(/\.ed25519$/, '')
+    const transform = `shs:${pubkey}`
     const addr = invite + '~' + transform
 
     debug('accept() will ssb.conn.connect to remote peer addr: %s', addr)
