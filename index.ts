@@ -172,8 +172,8 @@ class dhtInvite {
     this.clientCodesDB.del = this.clientCodesDB.del.bind(this.clientCodesDB)
     this.clientCodesDB
       .createReadStream({keys: true, values: false})
-      .on('data', (seed: string) => {
-        this.accept(seed, () => {})
+      .on('data', (invite: string) => {
+        this.accept(invite, () => {})
       })
   }
 
@@ -306,13 +306,6 @@ class dhtInvite {
     const [err4, res] = await run<Msg>(rpc.dhtInvite.use)(req)
     if (err4)
       return cb(explain(err4, 'Could not tell friend to use DHT invite'))
-    /**
-     * Typically, we should close the RPC connection, but in the case of
-     * DHT connections, it might take a lot more time for client and server
-     * to rediscover each other. So instead of closing, we will recycle the
-     * connection:
-     */
-    // rpc.close()
 
     const [err5] = await run(this.clientCodesDB.del)(invite)
     if (err5) return cb(explain(err5, 'Could not delete to-claim invite'))
@@ -329,6 +322,9 @@ class dhtInvite {
       following: true,
     })
     if (err6) return cb(explain(err6, 'Unable to follow friend behind invite'))
+
+    debug('accept() will remember the address %s in ConnDB', addr)
+    this.ssb.conn.remember(addr, {type: 'dht'})
 
     cb(null, true)
   }
