@@ -212,7 +212,7 @@ class dhtInvite {
     return [undefined, {seed, remoteId}]
   }
 
-  @muxrpc('sync', {master: 'allow'})
+  @muxrpc('async', {master: 'allow'})
   public start = (cb: CB<true>) => {
     if (this.clientCodesDB && this.serverCodesDB) return cb(null, true)
 
