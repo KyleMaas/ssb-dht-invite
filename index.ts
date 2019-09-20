@@ -24,14 +24,29 @@ type ParseInviteReturn =
   | [Error]
   | [undefined, {seed: string; addr: string; remoteId: string}]
 
-function dhtClientConnected({type, address, key, details}: any) {
+function dhtPeerConnected(type: string, addr: string, key: string, det: any) {
   if (type !== 'connected') return false
-  if (!address.startsWith('dht:')) return false
+  if (!addr.startsWith('dht:')) return false
   if (!key) return false
-  if (!details || !details.rpc) return false
-  if (details.rpc.meta !== 'dht') return false
-  if (details.isClient /* == "they are not the client, WE are" */) return false
+  if (!det || !det.rpc) return false
+  if (det.rpc.meta !== 'dht') return false
   return true
+}
+
+/**
+ * Checks if a remote DHT peer is the client, while we are the host
+ */
+function dhtClientConnected({type, address, key, details}: any) {
+  if (!dhtPeerConnected(type, address, key, details)) return false
+  return !details.isClient
+}
+
+/**
+ * Checks if a remote DHT peer is the host, while we are the client
+ */
+function dhtServerConnected({type, address, key, details}: any) {
+  if (!dhtPeerConnected(type, address, key, details)) return false
+  return details.isClient
 }
 
 function dhtPeerDisconnected({type, address, key}: any) {
@@ -99,6 +114,20 @@ class dhtInvite {
           this.updateServerCodesCacheOnlineStatus()
           this.emitServerCodesHosting()
         }
+      })
+    )
+
+    // Finish the accept() steps by calling the remote peer's use()
+    pull(
+      this.ssb.conn.hub().listen(),
+      pull.filter(dhtServerConnected),
+      pull.drain(({details, address}: any) => {
+        const seed = this.addressToSeed(address)
+        const req: Msg = {seed, feed: this.ssb.id}
+        debug('connected to DHT host, will call its use(%o)', req)
+        details.rpc.dhtInvite.use(req, (err: any) => {
+          console.error('Could not claim invite code at DHT host because:', err)
+        })
       })
     )
   }
@@ -210,6 +239,14 @@ class dhtInvite {
     return [undefined, {seed, addr, remoteId}]
   }
 
+  private addressToSeed(address: string): string {
+    const parts = address.split(':')
+    if (parts.length < 2 || parts[0] !== 'dht' || !parts[1]) {
+      throw new Error('Cannot get seed from address: ' + address)
+    }
+    return parts[1]
+  }
+
   @muxrpc('async', {master: 'allow'})
   public start = (cb: CB<true>) => {
     if (this.initialized) return cb(null, true)
@@ -247,13 +284,19 @@ class dhtInvite {
     const seed = req.seed
     const friendId = req.feed
     debug('use() called with request %o', req)
+
+    // fetch claimer
     const [err, claimer] = await run<string>(this.serverCodesDB.get)(seed)
     if (err)
       return cb(explain(err, 'Cannot `use` an invite that does not exist'))
-    if (claimer !== 'unclaimed') {
+    if (claimer === friendId) {
+      debug('use() is redundant, has already happened')
+      return cb(null, {seed: seed, feed: this.ssb.id})
+    } else if (claimer !== 'unclaimed') {
       return cb(new Error('Cannot `use` an already claimed invite'))
     }
 
+    // claimer is definitely "unclaimed"
     debug('use() will claim invite')
     const [err2] = await run(this.serverCodesDB.put)(seed, friendId)
     if (err2) return cb(err2)
@@ -295,12 +338,6 @@ class dhtInvite {
     const [e3, rpc] = await run<any>(this.ssb.conn.connect)(addr, {type: 'dht'})
     if (e3) return cb(explain(e3, 'Could not connect to DHT server'))
     debug('accept() has ssb.conn.connected to remote peer %s', addr)
-
-    // claim invite code
-    const req: Msg = {seed, feed: this.ssb.id}
-    debug("accept() will call remote's use(%o)", req)
-    const [e4] = await run<Msg>(rpc.dhtInvite.use)(req)
-    if (e4) return cb(explain(e4, 'Could not tell friend to use DHT invite'))
 
     cb(null, true)
   }
