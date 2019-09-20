@@ -1,4 +1,3 @@
-import sleep from 'delay'
 import run = require('promisify-tuple')
 import {plugin, muxrpc} from 'secret-stack-decorators'
 const crypto = require('crypto')
@@ -21,7 +20,9 @@ type CB<T> = (err?: any, val?: T) => void
  */
 type Msg = {feed: string; seed: string}
 
-type ParseInviteReturn = [Error] | [undefined, {seed: string; remoteId: string}]
+type ParseInviteReturn =
+  | [Error]
+  | [undefined, {seed: string; addr: string; remoteId: string}]
 
 function dhtClientConnected({type, address, key, details}: any) {
   if (type !== 'connected') return false
@@ -47,12 +48,9 @@ class dhtInvite {
   private readonly serverChannels: any
   private readonly serverCodesCache: Map<Seed, HostingInfo>
   private readonly serverCodesHosting: any
-  private readonly clientCodesCache: Set<string>
-  private readonly clientCodesClaiming: any
   private readonly onlineRemoteClients: Set<string>
-  private initialized: boolean = false
-  private serverCodesDB: any = null
-  private clientCodesDB: any = null
+  private initialized: boolean
+  private serverCodesDB: any
 
   constructor(ssb: any, config: any) {
     this.ssb = ssb
@@ -60,12 +58,9 @@ class dhtInvite {
     this.serverChannels = Pushable()
     this.serverCodesCache = new Map<Seed, HostingInfo>()
     this.serverCodesHosting = Notify()
-    this.clientCodesCache = new Set<string>()
-    this.clientCodesClaiming = Notify()
     this.onlineRemoteClients = new Set<string>()
     this.initialized = false
     this.serverCodesDB = null
-    this.clientCodesDB = null
 
     this.init()
   }
@@ -177,18 +172,6 @@ class dhtInvite {
       })
   }
 
-  private async setupClientCodesDB() {
-    this.clientCodesDB = await this.getSublevel('dhtClientCodes')
-    this.clientCodesDB.get = this.clientCodesDB.get.bind(this.clientCodesDB)
-    this.clientCodesDB.put = this.clientCodesDB.put.bind(this.clientCodesDB)
-    this.clientCodesDB.del = this.clientCodesDB.del.bind(this.clientCodesDB)
-    this.clientCodesDB
-      .createReadStream({keys: true, values: false})
-      .on('data', (invite: string) => {
-        this.accept(invite, () => {})
-      })
-  }
-
   /**
    * Given an invite code as a string, return the seed and remoteId.
    */
@@ -221,23 +204,24 @@ class dhtInvite {
         ),
       ]
     }
-    return [undefined, {seed, remoteId}]
+    const pubkey = remoteId.replace(/^\@/, '').replace(/\.ed25519$/, '')
+    const transform = `shs:${pubkey}`
+    const addr = invite + '~' + transform
+    return [undefined, {seed, addr, remoteId}]
   }
 
   @muxrpc('async', {master: 'allow'})
   public start = (cb: CB<true>) => {
-    if (this.clientCodesDB && this.serverCodesDB) return cb(null, true)
-
+    if (this.initialized) return cb(null, true)
     debug('start()')
     this.setupServerCodesDB()
-    this.setupClientCodesDB()
     this.initialized = true
     cb(null, true)
   }
 
   @muxrpc('async', {master: 'allow'})
   public create = async (cb: CB<string>) => {
-    if (!this.serverCodesDB) {
+    if (!this.initialized) {
       return cb(
         new Error('Cannot call dhtInvite.create() before dhtInvite.start()')
       )
@@ -254,7 +238,7 @@ class dhtInvite {
 
   @muxrpc('async', {anonymous: 'allow'})
   public use = async (req: Msg, cb: CB<Msg>) => {
-    if (!this.serverCodesDB) {
+    if (!this.initialized) {
       return cb(
         new Error('Cannot call dhtInvite.use() before dhtInvite.start()')
       )
@@ -291,70 +275,45 @@ class dhtInvite {
 
   @muxrpc('async', {master: 'allow'})
   public accept = async (invite: string, cb: CB<true>) => {
-    if (!this.clientCodesDB) {
-      return cb(
-        new Error('Cannot call dhtInvite.accept() before dhtInvite.start()')
-      )
-    }
-    const [err] = await run(this.clientCodesDB.put)(invite, true)
-    if (err) return cb(explain(err, 'Could not save to-claim invite locally'))
-    this.clientCodesCache.add(invite)
-    this.clientCodesClaiming(Array.from(this.clientCodesCache.values()))
+    // parse invite code
+    const [e1, parsed] = this.parseInvite(invite)
+    if (e1) return cb(e1)
+    const {remoteId, addr, seed} = parsed!
 
-    const [err2, parsed] = this.parseInvite(invite)
-    if (err2) return cb(err2)
-    const {seed, remoteId} = parsed!
-    const pubkey = remoteId.replace(/^\@/, '').replace(/\.ed25519$/, '')
-    const transform = `shs:${pubkey}`
-    const addr = invite + '~' + transform
-
-    debug('accept() will ssb.conn.connect to remote peer addr: %s', addr)
-    const [e3, rpc] = await run<any>(this.ssb.conn.connect)(addr, {type: 'dht'})
-    if (e3) return cb(explain(e3, 'Could not connect to DHT server'))
-    debug('accept() connected to remote DHT peer')
-
-    const req: Msg = {seed: seed, feed: this.ssb.id}
-    debug("accept() will call remote's use(%o)", req)
-    const [err4, res] = await run<Msg>(rpc.dhtInvite.use)(req)
-    if (err4)
-      return cb(explain(err4, 'Could not tell friend to use DHT invite'))
-
-    const [err5] = await run(this.clientCodesDB.del)(invite)
-    if (err5) return cb(explain(err5, 'Could not delete to-claim invite'))
-    this.clientCodesCache.delete(invite)
-    this.clientCodesClaiming(Array.from(this.clientCodesCache.values()))
-
-    await sleep(100)
-
-    const friendId = res.feed
-    debug('accept() will follow friend %s', friendId)
-    const [err6] = await run(this.ssb.publish)({
+    debug('accept() will follow friend %s', remoteId)
+    const [e2] = await run(this.ssb.publish)({
       type: 'contact',
-      contact: friendId,
+      contact: remoteId,
       following: true,
     })
-    if (err6) return cb(explain(err6, 'Unable to follow friend behind invite'))
+    if (e2) return cb(explain(e2, 'Unable to follow friend behind invite'))
 
     debug('accept() will remember the address %s in ConnDB', addr)
     this.ssb.conn.remember(addr, {type: 'dht'})
+
+    debug('accept() will ssb.conn.connect to remote peer %s', addr)
+    const [e3, rpc] = await run<any>(this.ssb.conn.connect)(addr, {type: 'dht'})
+    if (e3) return cb(explain(e3, 'Could not connect to DHT server'))
+    debug('accept() has ssb.conn.connected to remote peer %s', addr)
+
+    // claim invite code
+    const req: Msg = {seed, feed: this.ssb.id}
+    debug("accept() will call remote's use(%o)", req)
+    const [e4] = await run<Msg>(rpc.dhtInvite.use)(req)
+    if (e4) return cb(explain(e4, 'Could not tell friend to use DHT invite'))
 
     cb(null, true)
   }
 
   @muxrpc('async', {master: 'allow'})
   public remove = async (invite: string, cb: CB<true>) => {
-    if (!this.clientCodesDB || !this.serverCodesDB) {
+    if (!this.initialized) {
       return cb(
         new Error('Cannot call dhtInvite.remove() before dhtInvite.start()')
       )
     }
 
-    if (this.clientCodesCache.has(invite)) {
-      const [err] = await run(this.clientCodesDB.del)(invite)
-      if (err) return cb(explain(err, 'Could not delete client invite code'))
-      this.clientCodesCache.delete(invite)
-      this.clientCodesClaiming(Array.from(this.clientCodesCache.values()))
-    } else if (this.serverCodesCache.has(invite)) {
+    if (this.serverCodesCache.has(invite)) {
       const [err] = await run(this.serverCodesDB.del)(invite)
       if (err) return cb(explain(err, 'Could not delete server invite code'))
       this.serverCodesCache.delete(invite)
@@ -366,9 +325,6 @@ class dhtInvite {
 
   @muxrpc('source', {master: 'allow'})
   public hostingInvites = () => this.serverCodesHosting.listen()
-
-  @muxrpc('source', {master: 'allow'})
-  public claimingInvites = () => this.clientCodesClaiming.listen()
 }
 
 module.exports = dhtInvite
