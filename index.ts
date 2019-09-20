@@ -75,6 +75,13 @@ class dhtInvite {
       throw new Error('plugin ssb-dht-invite requires ssb-conn to be installed')
     }
 
+    // Install the multiserver plugin for DHT
+    this.ssb.multiserver.transport({
+      name: 'dht',
+      create: (dhtConfig: any) =>
+        DHT({keys: this.serverChannels, port: dhtConfig.port}),
+    })
+
     // Update record of online RPC clients using DHT transport.
     pull(
       this.ssb.conn.hub().listen(),
@@ -99,13 +106,6 @@ class dhtInvite {
         }
       })
     )
-
-    // Install the multiserver plugin for DHT
-    this.ssb.multiserver.transport({
-      name: 'dht',
-      create: (dhtConfig: any) =>
-        DHT({keys: this.serverChannels, port: dhtConfig.port}),
-    })
   }
 
   /**
