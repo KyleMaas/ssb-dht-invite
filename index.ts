@@ -28,7 +28,7 @@ function dhtPeerConnected(type: string, addr: string, key: string, det: any) {
   if (type !== 'connected') return false
   if (!addr.startsWith('dht:')) return false
   if (!key) return false
-  if (!det || !det.rpc) return false
+  if (!det?.rpc) return false
   if (det.rpc.meta !== 'dht') return false
   return true
 }
@@ -81,7 +81,7 @@ class dhtInvite {
   }
 
   private init() {
-    if (!this.ssb.conn || !this.ssb.conn.connect || !this.ssb.conn.hub) {
+    if (!(this.ssb.conn?.connect) || !(this.ssb.conn?.hub)) {
       throw new Error('plugin ssb-dht-invite requires ssb-conn to be installed')
     }
 
