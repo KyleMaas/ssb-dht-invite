@@ -7,7 +7,6 @@ const Notify = require('pull-notify')
 const DHT = require('multiserver-dht')
 const explain = require('explain-error')
 const level = require('level')
-const sublevel = require('level-sublevel/bytewise')
 const path = require('path')
 const debug = require('debug')('ssb:dht-invite')
 
@@ -81,7 +80,7 @@ class dhtInvite {
   }
 
   private init() {
-    if (!(this.ssb.conn?.connect) || !(this.ssb.conn?.hub)) {
+    if (!this.ssb.conn?.connect || !this.ssb.conn?.hub) {
       throw new Error('plugin ssb-dht-invite requires ssb-conn to be installed')
     }
 
@@ -152,9 +151,9 @@ class dhtInvite {
    */
   private emitServerCodesHosting() {
     this.serverCodesHosting(
-      Array.from(this.serverCodesCache.entries()).map(
-        ([seed, {claimer, online}]) => ({seed, claimer, online})
-      )
+      Array.from(
+        this.serverCodesCache.entries()
+      ).map(([seed, {claimer, online}]) => ({seed, claimer, online}))
     )
   }
 
@@ -164,27 +163,13 @@ class dhtInvite {
     )
   }
 
-  private async getSublevel(name: string) {
-    // 1st attempt: use sublevel() provided by ssb-server, if exists
-    if (this.ssb.sublevel) return this.ssb.sublevel(name)
-
-    // 2nd attempt: create a sublevel db dependent on a root db
-    const opts = {valueEncoding: 'json'}
-    const rootPath = path.join(this.config.path, 'db')
-    const [err, rootDb] = await run(level)(rootPath, opts)
-    if (!err && rootDb) return sublevel(rootDb).sublevel(name)
-
-    // 3rd attempt: create an independent level db
-    const targetPath = path.join(this.config.path, name)
-    const [err2, targetDb] = await run(level)(targetPath, opts)
-    if (!err2 && targetDb) return targetDb
-
-    // Quit:
-    throw err2
-  }
-
   private async setupServerCodesDB() {
-    this.serverCodesDB = await this.getSublevel('dhtServerCodes')
+    const dbPath = path.join(this.config.path, 'dhtServerCodes')
+    const opts = {valueEncoding: 'json'}
+    const [err2, db] = await run(level)(dbPath, opts)
+    if (err2) throw err2
+
+    this.serverCodesDB = db
     this.serverCodesDB.get = this.serverCodesDB.get.bind(this.serverCodesDB)
     this.serverCodesDB.put = this.serverCodesDB.put.bind(this.serverCodesDB)
     this.serverCodesDB.del = this.serverCodesDB.del.bind(this.serverCodesDB)
