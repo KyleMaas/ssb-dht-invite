@@ -1,6 +1,6 @@
 {
   "name": "ssb-dht-invite",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "An SSB plugin that shares connection invites via a Distributed Hash Table",
   "main": "lib/index.js",
   "repository": {
