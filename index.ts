@@ -57,14 +57,14 @@ function dhtPeerDisconnected({type, address, key}: any) {
 
 @plugin('1.0.0')
 class dhtInvite {
-  private readonly ssb: any
-  private readonly config: any
-  private readonly serverChannels: any
+  private readonly ssb: Record<string, any>
+  private readonly config: Record<string, any>
+  private readonly serverChannels: Record<string, any>
   private readonly serverCodesCache: Map<Seed, HostingInfo>
-  private readonly serverCodesHosting: any
+  private readonly serverCodesHosting: CallableFunction & Record<string, any>
   private readonly onlineRemoteClients: Set<string>
   private initialized: boolean
-  private serverCodesDB: any
+  private serverCodesDB: Record<string, any> | null
 
   constructor(ssb: any, config: any) {
     this.ssb = ssb
@@ -166,16 +166,16 @@ class dhtInvite {
   private async setupServerCodesDB() {
     const dbPath = path.join(this.config.path, 'dhtServerCodes')
     const opts = {valueEncoding: 'json'}
-    const [err2, db] = await run(level)(dbPath, opts)
+    const [err2, db] = await run<any>(level)(dbPath, opts)
     if (err2) throw err2
 
     this.serverCodesDB = db
-    this.serverCodesDB.get = this.serverCodesDB.get.bind(this.serverCodesDB)
-    this.serverCodesDB.put = this.serverCodesDB.put.bind(this.serverCodesDB)
-    this.serverCodesDB.del = this.serverCodesDB.del.bind(this.serverCodesDB)
-    this.serverCodesDB
-      .createReadStream()
-      .on('data', (data: {key: string; value: string}) => {
+    this.serverCodesDB!.get = this.serverCodesDB!.get.bind(this.serverCodesDB)
+    this.serverCodesDB!.put = this.serverCodesDB!.put.bind(this.serverCodesDB)
+    this.serverCodesDB!.del = this.serverCodesDB!.del.bind(this.serverCodesDB)
+    this.serverCodesDB!.createReadStream().on(
+      'data',
+      (data: {key: string; value: string}) => {
         const seed = data.key
         const claimer = data.value
         debug('server channels: emit %s', seed + ':' + this.ssb.id)
@@ -183,7 +183,8 @@ class dhtInvite {
         this.emitServerChannels(this.serverCodesCache)
         this.emitServerCodesHosting()
         this.updateServerCodesCacheOnlineStatus()
-      })
+      }
+    )
   }
 
   /**
@@ -243,7 +244,7 @@ class dhtInvite {
 
   @muxrpc('async', {master: 'allow'})
   public create = async (cb: CB<string>) => {
-    if (!this.initialized) {
+    if (!this.initialized || !this.serverCodesDB) {
       return cb(
         new Error('Cannot call dhtInvite.create() before dhtInvite.start()')
       )
@@ -260,7 +261,7 @@ class dhtInvite {
 
   @muxrpc('async', {anonymous: 'allow'})
   public use = async (req: Msg, cb: CB<Msg>) => {
-    if (!this.initialized) {
+    if (!this.initialized || !this.serverCodesDB) {
       return cb(
         new Error('Cannot call dhtInvite.use() before dhtInvite.start()')
       )
@@ -329,7 +330,7 @@ class dhtInvite {
 
   @muxrpc('async', {master: 'allow'})
   public remove = async (invite: string, cb: CB<true>) => {
-    if (!this.initialized) {
+    if (!this.initialized || !this.serverCodesDB) {
       return cb(
         new Error('Cannot call dhtInvite.remove() before dhtInvite.start()')
       )
