@@ -83,6 +83,12 @@ class dhtInvite {
     if (!this.ssb.conn?.connect || !this.ssb.conn?.hub) {
       throw new Error('plugin ssb-dht-invite requires ssb-conn to be installed')
     }
+    if (!this.ssb.friends?.isFollowing) {
+      debug(
+        'this plugin works better with ssb-friends installed, ' +
+          'but it was not found'
+      )
+    }
 
     // Install the multiserver plugin for DHT
     this.ssb.multiserver.transport({
@@ -289,13 +295,32 @@ class dhtInvite {
     this.serverCodesCache.set(seed, {claimer: friendId, online: true})
     this.emitServerCodesHosting()
 
-    debug('use() will follow remote friend')
-    const [err3] = await run(this.ssb.publish)({
-      type: 'contact',
-      contact: friendId,
-      following: true,
-    })
-    if (err3) return cb(err3)
+    // follow the remote peer if we got ssb-friends and they're not yet followed
+    if (this.ssb.friends) {
+      const [err3, alreadyFollow] = await run<boolean>(
+        this.ssb.friends.isFollowing
+      )({source: this.ssb.id, dest: friendId})
+      if (err3) return cb(err3)
+
+      if (alreadyFollow) {
+        debug(
+          'use() will not follow remote peer because they are already followed'
+        )
+      } else {
+        debug('use() will follow remote peer')
+        const [err4] = await run(this.ssb.publish)({
+          type: 'contact',
+          contact: friendId,
+          following: true,
+        })
+        if (err4) return cb(err4)
+      }
+    } else {
+      debug('no ssb-friends plugin found, so we wont follow the remote peer')
+      console.error(
+        'ssb-dht-invite requires ssb-friends when following remote peers'
+      )
+    }
 
     const res: Msg = {seed: seed, feed: this.ssb.id}
     debug('use() will respond with %o', res)
@@ -309,13 +334,32 @@ class dhtInvite {
     if (e1) return cb(e1)
     const {remoteId, addr, seed} = parsed!
 
-    debug('accept() will follow friend %s', remoteId)
-    const [e2] = await run(this.ssb.publish)({
-      type: 'contact',
-      contact: remoteId,
-      following: true,
-    })
-    if (e2) return cb(explain(e2, 'Unable to follow friend behind invite'))
+    // follow the remote peer if we got ssb-friends and they're not yet followed
+    if (this.ssb.friends) {
+      const [err3, alreadyFollow] = await run<boolean>(
+        this.ssb.friends.isFollowing
+      )({source: this.ssb.id, dest: remoteId})
+      if (err3) return cb(err3)
+
+      if (alreadyFollow) {
+        debug(
+          'accept() wont follow remote peer because they are already followed'
+        )
+      } else {
+        debug('accept() will follow friend %s', remoteId)
+        const [e2] = await run(this.ssb.publish)({
+          type: 'contact',
+          contact: remoteId,
+          following: true,
+        })
+        if (e2) return cb(explain(e2, 'Unable to follow friend behind invite'))
+      }
+    } else {
+      debug('no ssb-friends plugin found, so we wont follow the remote peer')
+      console.error(
+        'ssb-dht-invite requires ssb-friends when following remote peers'
+      )
+    }
 
     debug('accept() will remember the address %s in ConnDB', addr)
     this.ssb.conn.remember(addr, {type: 'dht'})
